@@ -102,6 +102,8 @@ export type AccountView = {
   headline: string;
   nextStep_suggested: string;
   confidence: Confidence;
+  /** why the account got that confidence (headline signal + match) */
+  confidenceWhy: string;
   caveats: string[];
 };
 
@@ -110,6 +112,8 @@ export type Book = {
   byId: Map<string, AccountView>;
   unmatchedCustomers: Array<{ id: string; name: string; contract: number | null; prodReqL28: number }>;
   asOf: string;
+  /** raw analytics, for usage drill-downs (get_usage / usage_leaderboard) */
+  analytics: Analytics;
 };
 
 // ---------- formatting helpers (facts are pre-formatted so the LLM copies, not computes) ----------
@@ -173,6 +177,7 @@ export function buildBook(crm: CrmBundle[], an: Analytics): Book {
       prodReqL28: Math.round(an.usage.get(c.id)?.byClass.prod.requests.l28 ?? 0),
     })),
     asOf: TODAY,
+    analytics: an,
   };
 }
 
@@ -259,7 +264,7 @@ function buildAccount(
     daysSinceContact: a.lastContactAt ? daysAgo(a.lastContactAt) : null,
     nextStep: a.nextStep,
     match, tenants, candidates, usage, contracts, openOpp, renewal, contacts, notes, meetings, recent, openTasks,
-    findings: [], meddpicc: [], priority: 0, priorityWhy: [], kind: null, headline: "", nextStep_suggested: "", confidence: "medium", caveats: [],
+    findings: [], meddpicc: [], priority: 0, priorityWhy: [], kind: null, headline: "", nextStep_suggested: "", confidence: "medium", confidenceWhy: "", caveats: [],
   };
   v.findings = detectFindings(v);
   v.meddpicc = assessMeddpicc(v);
@@ -537,8 +542,15 @@ function scoreAccount(v: AccountView) {
   const value = Math.max(v.openOpp?.value ?? 0, v.renewal?.value ?? 0, ...v.contracts.map((k) => k.amount));
   const valuePts = signal ? Math.min(15, Math.round(value / 70_000)) : 0;
   if (valuePts) why.push(`value at stake ${money(value)} +${valuePts}`);
-  const confs = v.findings.filter((f) => f.kind !== "hygiene").map((f) => f.confidence);
-  v.confidence = !confs.length ? "medium" : confs.every((c) => c === "high") ? "high" : confs.some((c) => c === "high") && v.match.confidence === "high" ? "high" : confs.includes("low") && !confs.includes("high") ? "low" : "medium";
+  // Account confidence = confidence of the finding that drives the ranking (the headline),
+  // capped by how sure we are this is the right usage record. Weakest link wins.
+  const RANKC: Record<Confidence, number> = { low: 0, medium: 1, high: 2 };
+  const lead = v.findings.find((f) => f.kind !== "hygiene");
+  const leadConf: Confidence = lead?.confidence ?? "medium";
+  v.confidence = RANKC[leadConf] <= RANKC[v.match.confidence] ? leadConf : v.match.confidence;
+  v.confidenceWhy = !lead
+    ? "no ranked signal"
+    : `${v.confidence}: headline signal is ${leadConf}${lead.caveat ? ` (${lead.caveat})` : ""}; account match is ${v.match.confidence} (${v.match.method})`;
   const factor = v.match.method === "ambiguous" ? 0.7 : v.match.confidence === "medium" ? 0.85 : 1;
   if (factor < 1) why.push(`x${factor} for match confidence (${v.match.method})`);
   v.priority = Math.round((signal + valuePts) * factor);

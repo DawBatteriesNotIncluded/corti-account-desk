@@ -23,7 +23,7 @@ export function renderBrief(book: Book, owner?: string | null): string {
     lines.push(`${bold(`${i + 1}. ${a.name}`)} ${dim(`(${a.id}, ${a.stage}, owner ${a.owner})`)} ${tag(a.kind)}  ${dim(`priority ${a.priority}`)}`);
     for (const f of a.findings.filter((x) => x.kind !== "hygiene").slice(0, 3)) lines.push(`   - ${f.text} ${dim(sourceTag(f.source))}`);
     lines.push(`   ${cyan("Suggested:")} ${a.nextStep_suggested}`);
-    lines.push(`   ${dim("Confidence:")} ${confTag(a.confidence)}${a.caveats.length ? dim(` - ${a.caveats[0]}`) : ""}`);
+    lines.push(`   ${dim("Confidence:")} ${confTag(a.confidence)} ${dim(`- ${a.confidenceWhy.replace(/^\w+: /, "")}`)}`);
     lines.push("");
   });
   const amb = book.accounts.filter((a) => a.match.method === "ambiguous").length;
@@ -35,6 +35,7 @@ export function renderAccount(a: AccountView): string {
   const L: string[] = [];
   L.push(`${bold(a.name)} ${dim(`${a.id} - ${a.stage} - owner ${a.owner} - ${a.industry}, ${a.employees} employees, ICP ${a.icpTier}`)} ${tag(a.kind)}`);
   L.push(`${dim("Match:")} ${a.match.method} (${a.match.confidence}) - ${a.match.note}`);
+  L.push(`${dim("Confidence:")} ${confTag(a.confidence)} ${dim(`- ${a.confidenceWhy.replace(/^\w+: /, "")}`)}`);
   if (a.openOpp) L.push(`${dim("Open deal:")} ${a.openOpp.name} ${money(a.openOpp.value)} ${a.openOpp.stage}, closes ${a.openOpp.closeDate} (${a.openOpp.daysToClose}d), next: ${a.openOpp.nextStep ?? "-"}`);
   if (a.renewal) L.push(`${dim("Renewal:")} ${money(a.renewal.value)} on ${a.renewal.closeDate} (${a.renewal.daysToRenewal}d)`);
   for (const k of a.contracts) L.push(`${dim("Contract:")} ${k.type} ${money(k.amount)}, ${k.balancePct}% left, ends ${k.ending_before.slice(0, 10)} (${k.daysToEnd}d)`);

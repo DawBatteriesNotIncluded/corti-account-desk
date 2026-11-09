@@ -11,7 +11,8 @@ import { loadAnalytics } from "../src/analytics/usage.ts";
 import { buildBook, briefItems, type Book } from "../src/book.ts";
 import { classifyProject } from "../src/analytics/usage.ts";
 import { groundingCheck } from "../src/agent.ts";
-import { findAccount } from "../src/tools.ts";
+import { findAccount, TOOLS } from "../src/tools.ts";
+import { offTopicReply } from "../src/agent.ts";
 
 let book: Book;
 
@@ -72,6 +73,22 @@ describe("signals", () => {
   });
 });
 
+describe("confidence", () => {
+  test("account confidence is capped by the match: name-only <= medium, ambiguous = low", () => {
+    for (const a of book.accounts) {
+      if (a.match.method === "name_only") assert.notEqual(a.confidence, "high", a.id);
+      if (a.match.method === "ambiguous") assert.equal(a.confidence, "low", a.id);
+      assert.ok(a.confidenceWhy.length > 0, a.id);
+    }
+  });
+  test("an estimate-led account can't be high confidence", () => {
+    for (const a of book.accounts) {
+      const lead = a.findings.find((f) => f.kind !== "hygiene");
+      if (lead?.id === "runway_short") assert.equal(a.confidence, "low", a.id);
+    }
+  });
+});
+
 describe("account lookup", () => {
   test("ambiguous name returns candidates", () => {
     const r = findAccount(book, "Lakeview");
@@ -81,6 +98,30 @@ describe("account lookup", () => {
   test("id and name both resolve", () => {
     assert.equal(findAccount(book, "acc_022").account?.id, "acc_022");
     assert.equal(findAccount(book, "Ironwood Health").account?.id, "acc_007");
+  });
+});
+
+describe("usage tools and scope guard", () => {
+  const ctx = () => ({ book, crm: {} as never, confirm: async () => false });
+  test("get_usage returns sourced metrics, classified projects and the mix caveat", async () => {
+    const r = (await TOOLS.get_usage.run({ query: "acc_007" }, ctx())) as Record<string, unknown>;
+    assert.match(String(r.source), /\[Usage\]/);
+    assert.ok((r.projects as unknown[]).length >= 2);
+    assert.match(String(r.product_mix_caveat), /descriptive only/);
+  });
+  test("get_usage refuses to attribute usage on an ambiguous match", async () => {
+    const r = (await TOOLS.get_usage.run({ query: "acc_010" }, ctx())) as Record<string, unknown>;
+    assert.match(String(r.error), /ambiguous/);
+  });
+  test("usage_leaderboard ranks by the chosen metric", async () => {
+    const r = (await TOOLS.usage_leaderboard.run({ metric: "tokens", order: "largest", limit: 5 }, ctx())) as { items: Array<{ last_28d: number }> };
+    assert.equal(r.items.length, 5);
+    for (let i = 1; i < 5; i++) assert.ok(r.items[i - 1].last_28d >= r.items[i].last_28d);
+  });
+  test("off-topic reply declines and suggests tasks from the brief", () => {
+    const t = offTopicReply(book, null);
+    assert.match(t, /can only help with your accounts/);
+    assert.match(t, /acc_022/);
   });
 });
 

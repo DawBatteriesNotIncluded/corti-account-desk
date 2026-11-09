@@ -3,8 +3,10 @@
 A terminal tool an account executive **talks to** before standup. It opens with
 a ranked brief of what needs attention today and why, then answers free-form
 questions about any account, the whole book, risk, growth, MEDDPICC gaps or
-what changed last week. It can also create CRM tasks and notes once the AE
-confirms.
+what changed last week. It can also drill into product usage (metrics, projects, product
+mix, leaderboards) and create CRM tasks and notes once the AE confirms. It
+only answers account questions: anything else gets a polite refusal plus
+suggested tasks for today.
 
 ```
 Today, 2025-03-14 - whole book (200 accounts, 10 owners) - 8 accounts need attention
@@ -36,7 +38,7 @@ is 537 MB, which is over GitHub's file limit, so it isn't committed.
 | `npm run brief` / `npm run brief -- --account acc_022` | Deterministic brief or account card. **No LLM needed** |
 | `npm run ask -- "What should I do first today?"` | Ask a one-off question without the interactive chat |
 | `npm run corti:check` | Check the Corti credentials |
-| `npm test` | 32 tests: join, signals, MEDDPICC, grounding check, Corti auth |
+| `npm test` | 38 tests: join, signals, MEDDPICC, confidence, usage tools, scope guard, grounding check, Corti auth |
 
 In the chat: `/brief`, `/account <name|id>`, `/owner <id|all>`, `/reset`, `/quit`.
 

@@ -7,6 +7,7 @@ import type { ToolDef } from "../lib/corti.ts";
 import { TODAY, addDays, daysAgo } from "./config.ts";
 import { briefItems, fmtDate, money, pct, sourceTag, type AccountView, type Book, type Kind } from "./book.ts";
 import type { CrmClient } from "./crm/client.ts";
+import { DIMENSIONS, loadDimensions } from "./analytics/usage.ts";
 
 const norm = (s: string) => s.toLowerCase().replace(/\b(group|llc|ltd|inc|healthcare)\b/g, "").replace(/[^a-z0-9]/g, "");
 
@@ -31,6 +32,7 @@ function summary(a: AccountView) {
     other_signals: a.findings.slice(1, 3).map((f) => `${f.text} ${sourceTag(f.source)}`),
     suggested_next_step: `${a.nextStep_suggested} (suggestion, not from the CRM)`,
     confidence: a.confidence,
+    confidence_reason: a.confidenceWhy,
     caveats: a.caveats.slice(0, 2),
   };
 }
@@ -62,6 +64,7 @@ export function accountFacts(a: AccountView) {
     suggested_next_step: `${a.nextStep_suggested} (suggestion, not from the CRM)`,
     priority: { score: a.priority, why: a.priorityWhy, note: "computed ranking score, not a CRM field" },
     overall_confidence: a.confidence,
+    confidence_reason: a.confidenceWhy,
     caveats: a.caveats,
   };
 }
@@ -147,6 +150,64 @@ export const TOOLS: Record<string, Tool> = {
       return { window: `${since}..${TODAY}`, crm_activity: activity.slice(0, 25), crm_activity_total: activity.length, biggest_weekly_usage_moves: movers,
         caveat: "CRM activity is sparse (1-3 records per account) and week-over-week usage moves are mostly noise; 28-day trends are the reliable usage signal." };
     },
+  },
+  get_usage: {
+    def: fn("get_usage", "Product usage drill-down for one account from the analytics database: requests, tokens and transcription per metric (last 28 days vs prior 28), each project with its environment (production / non-production / sandbox), product mix (agents, models, API routes, languages, sources) and the weekly series. Use for 'what are they using', 'how many transcription minutes', 'which projects'.", { query: { type: "string", description: "account id or name" } }, ["query"]),
+    run: (a, { book }) => {
+      const r = findAccount(book, String(a.query ?? ""));
+      if (!r.account) return { error: r.candidates.length ? "ambiguous name" : "no account found", candidates: r.candidates.map((c) => ({ id: c.id, name: c.name })) };
+      const acc = r.account;
+      if (acc.match.method === "ambiguous") return { account: `${acc.name} (${acc.id})`, error: "usage not attributed: ambiguous match", note: acc.match.note, candidates: acc.candidates.map((t) => ({ tenant: t.name, prod_trend: pct(t.trendPct), prod_requests_last_28d: t.prodReqL28 })) };
+      const an = book.analytics;
+      const projs = an.projects.filter((p) => acc.match.customerIds.includes(p.customer_id));
+      const prodIds = new Set(projs.filter((p) => p.cls === "prod").map((p) => p.id));
+      const sum = (ids: Set<string>, m: "requests" | "tokens" | "transcribe", w: "l28" | "p28") => [...ids].reduce((s, id) => s + (an.projectUsage.get(id)?.[m][w] ?? 0), 0);
+      const metric = (m: "requests" | "tokens" | "transcribe", unit: string) => {
+        const l = sum(prodIds, m, "l28"), p = sum(prodIds, m, "p28");
+        return { last_28d: `${Math.round(l)} ${unit}`, prior_28d: `${Math.round(p)} ${unit}`, change: pct(p ? ((l - p) / p) * 100 : null) };
+      };
+      const dims = loadDimensions();
+      const mix: Record<string, Array<{ value: string; share_of_requests: string }>> = {};
+      for (const d of DIMENSIONS) {
+        const rows = dims.filter((x) => prodIds.has(x[0]) && x[1] === "requests" && x[2] === d);
+        const tot = rows.reduce((s, x) => s + x[4], 0);
+        const by = new Map<string, number>();
+        for (const x of rows) by.set(x[3], (by.get(x[3]) ?? 0) + x[4]);
+        mix[d] = [...by].sort((p, q) => q[1] - p[1]).map(([value, q]) => ({ value, share_of_requests: tot ? `${Math.round((q / tot) * 100)}%` : "0%" }));
+      }
+      return {
+        account: `${acc.name} (${acc.id})`, source: "[Usage] analytics usage_events, production-named projects, NFR excluded, last 28 days vs prior 28",
+        match: `${acc.match.method} (${acc.match.confidence})`,
+        tenants: acc.tenants.map((t) => `${t.name}${t.region ? ` (${t.region})` : ""}`),
+        requests: metric("requests", "requests"), tokens: metric("tokens", "tokens"), transcription: metric("transcribe", "transcription units (unit not documented in the data)"),
+        projects: projs.map((p) => ({ name: p.name, environment: p.cls === "prod" ? "production" : p.cls === "sandbox" ? "sandbox (trial)" : `non-production (by name; labelled ${p.environment_type})`,
+          requests_last_28d: Math.round(an.projectUsage.get(p.id)?.requests.l28 ?? 0), requests_90d: Math.round(an.projectUsage.get(p.id)?.requests.total ?? 0) })),
+        product_mix_last_28d: mix,
+        product_mix_caveat: "In this dataset every customer shows the same fixed product mix, so the mix is descriptive only: it does not distinguish this account from others and is not used in ranking.",
+        weekly_prod_requests_oldest_first: acc.tenants.reduce((s, t) => t.weekly.map((v, i) => (s[i] ?? 0) + v), [] as number[]),
+      };
+    },
+  },
+  usage_leaderboard: {
+    def: fn("usage_leaderboard", "Rank accounts by product usage from the analytics database (last 28 days, production projects): biggest users, fastest growing or fastest declining.", {
+      metric: { type: "string", enum: ["requests", "tokens", "transcribe"] }, order: { type: "string", enum: ["largest", "growing", "declining"] }, owner, stage: { type: "string", enum: ["prospect", "evaluation", "mvp", "customer", "closed_lost"] }, limit: { type: "number" } }, ["metric"]),
+    run: (a, { book }) => {
+      const m = (String(a.metric ?? "requests") as "requests" | "tokens" | "transcribe");
+      const an = book.analytics;
+      const rows = book.accounts.filter((x) => x.match.method !== "ambiguous" && x.tenants.length && (!a.owner || x.owner === a.owner) && (!a.stage || x.stage === a.stage)).map((x) => {
+        const ids = an.projects.filter((p) => x.match.customerIds.includes(p.customer_id) && p.cls === "prod").map((p) => p.id);
+        const l = ids.reduce((s, id) => s + (an.projectUsage.get(id)?.[m].l28 ?? 0), 0), p = ids.reduce((s, id) => s + (an.projectUsage.get(id)?.[m].p28 ?? 0), 0);
+        return { account: `${x.name} (${x.id})`, stage: x.stage, owner: x.owner, last_28d: Math.round(l), prior_28d: Math.round(p), change_pct: p >= (m === "requests" ? 100 : 1) ? Math.round(((l - p) / p) * 100) : null };
+      });
+      const order = String(a.order ?? "largest");
+      const sorted = order === "largest" ? rows.sort((x, y) => y.last_28d - x.last_28d)
+        : rows.filter((r) => r.change_pct != null).sort((x, y) => (order === "growing" ? (y.change_pct! - x.change_pct!) : (x.change_pct! - y.change_pct!)));
+      return { source: `[Usage] ${m}, production-named projects, last 28 days vs prior 28; ambiguous-match accounts excluded`, order, items: sorted.slice(0, Number(a.limit ?? 10)).map((r) => ({ ...r, change: r.change_pct == null ? "n/a" : pct(r.change_pct) })) };
+    },
+  },
+  off_topic: {
+    def: fn("off_topic", "Call this (and only this) when the question is NOT about the AE's accounts, contacts, deals, renewals, pipeline, MEDDPICC, product usage/billing or CRM tasks/notes - e.g. general knowledge, opinions, jokes, coding, personal questions.", {}),
+    run: () => ({ status: "off topic" }),
   },
   create_task: {
     def: fn("create_task", "Create a CRM task on an account (asks the AE to confirm first).", { account_id: { type: "string" }, title: { type: "string" }, due_date: { type: "string", description: "YYYY-MM-DD" } }, ["account_id", "title"]),

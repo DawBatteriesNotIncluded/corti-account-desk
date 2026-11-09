@@ -45,7 +45,18 @@ and writes the answer.
 never raw tables. Every answer is then checked.
 
 - **Tools** (`src/tools.ts`): `today_brief`, `get_account`, `find_accounts`,
-  `book_summary`, `whats_changed`, `create_task`, `add_note`. Each returns
+  `book_summary`, `whats_changed`, `get_usage` (per-account analytics
+  drill-down: metrics, projects by environment, product mix, weekly series),
+  `usage_leaderboard` (biggest, growing and declining users), `create_task`,
+  `add_note` and `off_topic`.
+- **Scope guard:** the assistant only handles accounts, pipeline, usage and
+  CRM actions. For anything else the model calls `off_topic`, and **code**
+  writes the reply: "I can only help with your accounts..." plus the top 3
+  suggested tasks from today's brief. There's no second model call, so
+  there's nothing to improvise and no way to be talked into off-topic answers.
+- **Product mix is descriptive only.** It answers "what are they using?", but
+  every customer has the same fixed mix in this data, so it's never used for
+  ranking. The tool says so whenever it shows the mix. Each returns
   compact JSON with values already formatted (`$145k`, `-28%`, `60 days`), so
   the model copies them instead of doing arithmetic.
 - **The first model call in every turn must use a tool**
@@ -140,10 +151,18 @@ profiling is in [`data-inventory.md`](data-inventory.md).
 - **Per finding:** a confidence level plus the source (CRM or analytics) and
   any caveat, e.g. "runway assumes linear burn" or "meeting attendees not
   recorded".
-- **Per account:** overall confidence, which drops for name-only or ambiguous
-  matches and for assumption-based signals. The priority score is multiplied
-  by 0.85 for name-only matches and 0.7 for ambiguous ones, so weaker
-  evidence ranks lower.
+- **Per account: the weakest link wins.** Account confidence = the confidence
+  of the headline finding (the one that drives the ranking), capped by the
+  match confidence. A high-confidence signal on a name-only match is medium;
+  anything on an ambiguous match is low; an estimate-led account is low.
+  Every account prints the reason, e.g. "medium - headline signal is high;
+  account match is medium (name_only)". Tested in `tests/book.test.ts`.
+- The priority score is also multiplied by 0.85 for name-only matches and 0.7
+  for ambiguous ones, so weaker evidence ranks lower.
+- **What confidence means:** quality of evidence (recorded fact vs
+  interpretation vs projection, and how sure the join is), **not** a
+  probability that the account will churn or renew. There are no outcome
+  labels in this data to calibrate a probability.
 - **Per answer:** the grounding-check warning plus the list of tools used, so
   the AE can see where the answer came from.
 

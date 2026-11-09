@@ -5,12 +5,14 @@
  */
 import { chat, type ChatMessage } from "../lib/corti.ts";
 import { CHAT_MODEL, TODAY } from "./config.ts";
-import type { Book } from "./book.ts";
+import { briefItems, type Book } from "./book.ts";
 import type { CrmClient } from "./crm/client.ts";
 import { TOOLS, toolDefs } from "./tools.ts";
 
 export const SYSTEM_PROMPT = `You are Account Desk, a copilot for a Corti account executive (AE) with ~30 minutes before standup.
 Today is ${TODAY} (the last day in the CRM and analytics data). Corti sells clinical AI APIs (speech-to-text, text generation, coding) to healthcare companies.
+
+SCOPE: you only help with the AE's accounts, contacts, deals, renewals, pipeline, MEDDPICC, product usage/billing and CRM tasks/notes. For anything else (general knowledge, opinions, coding, jokes, personal questions, other companies) call the off_topic tool and nothing else.
 
 How to work:
 - ALWAYS get facts by calling tools. Never invent accounts, people, numbers, dates or events. If something isn't in the tool results, say it isn't in the data.
@@ -73,6 +75,20 @@ export function groundingCheck(answer: string, facts: string): { unsupported: st
   return { unsupported: [...new Set(unsupported)] };
 }
 
+/** Fixed reply for anything outside accounts / pipeline / usage. Suggestions come from today's brief. */
+export function offTopicReply(book: Book, owner: string | null): string {
+  const items = briefItems(book, owner, 3);
+  const lines = items.map((a, i) => `${i + 1}. ${a.name} (${a.id}): ${a.nextStep_suggested}`);
+  return [
+    "I can only help with your accounts, pipeline and product usage, so I can't answer that.",
+    "",
+    "Suggested tasks for today instead (from the ranked brief; suggestions, not from the CRM):",
+    ...lines,
+    "",
+    'Try: "Tell me about ' + (items[0]?.name ?? "an account") + '", "What\'s at risk?" or "Create a task for #1".',
+  ].join("\n");
+}
+
 export type AgentDeps = { book: Book; crm: CrmClient; confirm: (q: string) => Promise<boolean>; owner: () => string | null; onTool?: (name: string, args: unknown) => void };
 
 export class Agent {
@@ -101,6 +117,14 @@ export class Agent {
         this.history.push({ role: "user", content: question }, { role: "assistant", content: text });
         if (this.facts.length > 40) this.facts = this.facts.slice(-40);
         return { text, unsupported, toolsUsed };
+      }
+      // Scope guard: off-topic questions get a fixed, code-written reply (no second model call, nothing improvised).
+      const off = res.toolCalls.find((tc) => tc.function.name === "off_topic");
+      if (off) {
+        toolsUsed.push("off_topic");
+        const text = offTopicReply(this.deps.book, this.deps.owner());
+        this.history.push({ role: "user", content: question }, { role: "assistant", content: text });
+        return { text, unsupported: [], toolsUsed };
       }
       messages.push({ role: "assistant", content: res.content || null, tool_calls: res.toolCalls });
       for (const tc of res.toolCalls) {

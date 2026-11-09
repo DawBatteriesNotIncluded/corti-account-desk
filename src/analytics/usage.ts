@@ -66,13 +66,46 @@ export type TenantUsage = {
   firstProdUsage: string | null;
 };
 
+export type ProjectUsage = Record<Metric, { l28: number; p28: number; total: number }>;
+
 export type Analytics = {
   customers: Customer[];
   contracts: Contract[];
   projects: Project[];
   usage: Map<string, TenantUsage>;
+  projectUsage: Map<string, ProjectUsage>;
   windowStart: string;
 };
+
+export const DIMENSIONS = ["agent_used", "model_name", "route", "language_used", "source"] as const;
+export type Dimension = (typeof DIMENSIONS)[number];
+/** [project_id, metric, dimension, value, quantity] for the last 28 days, NFR excluded */
+type DimRow = [string, Metric, Dimension, string, number];
+let dimCache: DimRow[] | null = null;
+
+/** Product-mix aggregate (last 28 days). Built once on first use, then cached on disk. */
+export function loadDimensions(onProgress?: (msg: string) => void): DimRow[] {
+  if (dimCache) return dimCache;
+  const st = statSync(ANALYTICS_DB);
+  const file = resolve(CACHE_DIR, `usage-dims-${st.size}-${Math.round(st.mtimeMs)}-${WINDOWS.l28.from}.json`);
+  if (existsSync(file)) return (dimCache = JSON.parse(readFileSync(file, "utf8")) as DimRow[]);
+  onProgress?.("First product-mix question: aggregating usage dimensions (one-off, ~30 s)...");
+  const db = openDb();
+  try {
+    const rows: DimRow[] = [];
+    const m: Record<string, Metric> = { request: "requests", tokens: "tokens", transcribe: "transcribe" };
+    for (const dim of DIMENSIONS) {
+      const r = db.prepare(`SELECT project_id p, event_type t, COALESCE(NULLIF(${dim}, ''), '(none)') v, SUM(quantity) q FROM usage_events
+        WHERE is_nfr = 0 AND event_date BETWEEN ? AND ? GROUP BY 1, 2, 3`).all(WINDOWS.l28.from, WINDOWS.l28.to) as Array<{ p: string; t: string; v: string; q: number }>;
+      for (const x of r) rows.push([x.p, m[x.t], dim, x.v, Math.round(x.q * 100) / 100]);
+    }
+    mkdirSync(CACHE_DIR, { recursive: true });
+    writeFileSync(file, JSON.stringify(rows));
+    return (dimCache = rows);
+  } finally {
+    db.close();
+  }
+}
 
 function openDb() {
   if (!existsSync(ANALYTICS_DB)) {
@@ -132,9 +165,17 @@ export function loadAnalytics(onProgress?: (msg: string) => void): Analytics {
         firstProdUsage: null,
       });
     }
+    const projectUsage = new Map<string, ProjectUsage>();
+    const pblank = () => ({ l28: 0, p28: 0, total: 0 });
     for (const [pid, t, d, q] of daily.rows) {
       const proj = projById.get(pid);
       if (!proj) continue;
+      if (!projectUsage.has(pid)) projectUsage.set(pid, { requests: pblank(), tokens: pblank(), transcribe: pblank() });
+      const pu = projectUsage.get(pid)![T2M[t]];
+      const pdate = addDays(daily.start, d);
+      pu.total += q;
+      if (inWin(pdate, WINDOWS.l28)) pu.l28 += q;
+      if (inWin(pdate, WINDOWS.p28)) pu.p28 += q;
       const u = usage.get(proj.customer_id);
       if (!u) continue;
       const date = addDays(daily.start, d);
@@ -153,7 +194,7 @@ export function loadAnalytics(onProgress?: (msg: string) => void): Analytics {
         }
       }
     }
-    return { customers, contracts, projects, usage, windowStart: daily.start };
+    return { customers, contracts, projects, usage, projectUsage, windowStart: daily.start };
   } finally {
     db.close();
   }
