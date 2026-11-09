@@ -25,9 +25,24 @@ you> Tell me about Ironwood - who should I talk to and where are the MEDDPICC ga
 
 ```bash
 npm install
-npm run set-key        # paste the Corti client secret (saved to .env.local, gitignored)
-npm run challenge      # the conversational tool (starts the mock CRM if it isn't running)
+npm run challenge
 ```
+
+`npm run challenge` starts the terminal tool. It also starts the mock CRM if
+it isn't already running.
+
+- **First run:** it asks for the Corti connection settings. Either paste the
+  credentials line as supplied (`CORTI_TENANT_NAME=... CORTI_CLIENT_ID=...
+  CORTI_CLIENT_SECRET=... CORTI_ENVIRONMENT=...`), or press Enter to fill in
+  tenant (default `base`), environment (default `eu`), client ID and client
+  secret one at a time.
+- **The secret is typed hidden**, saved only to `.env.local` (gitignored), and
+  the connection is tested before the tool continues.
+- **To change the settings later:** run `npm run setup`.
+- **No credentials?** The brief and the `/account` cards still work; only the
+  chat needs Corti.
+
+See [docs/DEMO.md](docs/DEMO.md) for a real recorded session.
 
 You also need `data/` from the challenge zip. `data/analytics/analytics.sqlite`
 is 537 MB, which is over GitHub's file limit, so it isn't committed.
@@ -39,7 +54,8 @@ is 537 MB, which is over GitHub's file limit, so it isn't committed.
 | `npm run ask -- "What should I do first today?"` | Ask a one-off question without the interactive chat |
 | `npm run links` | Export the full CRM-account → usage-record mapping, with method and confidence for each, to `out/links.csv` |
 | `npm run corti:check` | Check the Corti credentials |
-| `npm test` | 38 tests: join, signals, MEDDPICC, confidence, usage tools, scope guard, grounding check, Corti auth |
+| `npm run setup` | Re-enter the Corti connection settings |
+| `npm test` | 39 tests: join, signals, MEDDPICC, confidence, usage tools, scope guard, grounding check, Corti auth |
 
 In the chat: `/brief`, `/account <name|id>`, `/owner <id|all>`, `/reset`, `/quit`.
 Account linking: `/links`, `/link <acc_id> <cust_id>[,cust_id]` (the AE confirms an ambiguous match; it's saved to `data/links.json` and sent to the CRM via PATCH), `/unlink <acc_id>`.
@@ -121,6 +137,28 @@ See [DECISIONS.md §10](docs/DECISIONS.md#10-what-id-do-next-with-more-time):
 - letting the AE confirm ambiguous matches once;
 - an eval set of questions with expected facts;
 - calibrating thresholds on renewal outcomes.
+
+## Scope and time
+
+**Core**, built first, within the brief:
+- loading both sources;
+- matching accounts with confidence;
+- the signals, ranking and brief;
+- MEDDPICC;
+- chat over tools with the fact-check;
+- tests and docs.
+
+**Extras**, added afterwards once the core worked:
+- the red-team pass;
+- source tags and inference labels;
+- the off-topic guard;
+- usage drill-downs and leaderboards;
+- AE-confirmed account links;
+- the setup wizard and terminal formatting.
+
+Each extra is small and isolated: one tool entry, one detector entry or one
+CLI command. The core stands without them. A web UI was designed but not
+built.
 
 ## Changes to the provided files
 

@@ -6,9 +6,10 @@ import { createInterface } from "node:readline/promises";
 import { authMode } from "../lib/corti.ts";
 import { Agent } from "./agent.ts";
 import { loadBook } from "./load.ts";
-import { bold, cyan, dim, md, renderAccount, renderBrief, yellow } from "./render.ts";
+import { bold, cyan, dim, formatAnswer, renderAccount, renderBrief, width, yellow } from "./render.ts";
 import { findAccount } from "./tools.ts";
 import { loadLinks, saveLinks } from "./join/links.ts";
+import { ensureSettings } from "./setup.ts";
 
 const HELP = `${bold("Ask anything")}, e.g.
   What should I do first today?        Tell me about CrestlineMedical
@@ -21,6 +22,8 @@ ${bold("Links")} (CRM account <-> usage record): /links  /link <acc_id> <cust_id
 export async function main(argv = process.argv.slice(2)) {
   const ownerArg = argv.includes("--owner") ? argv[argv.indexOf("--owner") + 1] : null;
   let owner: string | null = ownerArg ?? null;
+  // First run (or --setup): ask for the Corti connection settings before anything else.
+  await ensureSettings(argv.includes("--setup"));
   console.log(dim("Loading CRM (via API) and product analytics..."));
   const loaded = await loadBook((s) => console.log(dim(s)));
   let book = loaded.book;
@@ -41,12 +44,12 @@ export async function main(argv = process.argv.slice(2)) {
   };
   const confirm = async (q: string) => /^y(es)?$/i.test(((await prompt(yellow(`${q} [y/N] `))) ?? "").trim());
   const llm = authMode() !== "none";
-  const agent = new Agent({ book, crm, confirm, owner: () => owner, onTool: (n, a) => console.log(dim(`  -> ${n}(${JSON.stringify(a)})`)) });
-  if (!llm) console.log(yellow("Corti credentials not set (npm run set-key): chat is off, slash commands still work."));
+  const agent = new Agent({ book, crm, confirm, owner: () => owner, onTool: (n, a) => console.log(dim(`  ↳ looking up ${n} ${Object.keys(a as object).length ? JSON.stringify(a) : ''}`)) });
+  if (!llm) console.log(yellow("Corti isn't connected (run npm run setup): chat is off, slash commands still work."));
   console.log(HELP + "\n");
 
   for (;;) {
-    const line = await prompt(cyan("you> "));
+    const line = await prompt(cyan(bold("you › ")));
     if (line == null) break;
     const q = line.trim();
     if (!q) continue;
@@ -103,10 +106,11 @@ export async function main(argv = process.argv.slice(2)) {
     if (!llm) { console.log(yellow("Chat needs Corti credentials. Try /brief or /account <name>.")); continue; }
     try {
       const t0 = Date.now();
+      process.stdout.write(dim("  thinking...\n"));
       const r = await agent.ask(q);
-      console.log("\n" + md(r.text));
-      if (r.unsupported.length) console.log(yellow(`\n! Not found in the data I retrieved: ${r.unsupported.join(", ")} - treat as unverified.`));
-      console.log(dim(`\n(${((Date.now() - t0) / 1000).toFixed(1)}s; sources: ${r.toolsUsed.length ? [...new Set(r.toolsUsed)].join(", ") : "none - answer not grounded in a tool call"})\n`));
+      console.log("\n" + formatAnswer(r.text));
+      if (r.unsupported.length) console.log("\n" + yellow(`  ⚠ Not found in the data I retrieved: ${r.unsupported.join(", ")}. Treat as unverified.`));
+      console.log(dim(`\n  ${"─".repeat(Math.min(40, width()))}\n  ${((Date.now() - t0) / 1000).toFixed(1)}s · looked up: ${r.toolsUsed.length ? [...new Set(r.toolsUsed)].join(", ") : "nothing (answer not grounded)"}\n`));
     } catch (e) {
       console.log(yellow(`The model call failed: ${(e as Error).message}. Slash commands still work (/brief, /account).`));
     }

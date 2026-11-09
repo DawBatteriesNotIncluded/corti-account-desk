@@ -4,7 +4,7 @@
  */
 import { Agent } from "../src/agent.ts";
 import { loadBook } from "../src/load.ts";
-import { md } from "../src/render.ts";
+import { formatAnswer } from "../src/render.ts";
 
 const qs = process.argv.slice(2);
 const { book, crm } = await loadBook(() => {});
@@ -13,7 +13,7 @@ for (const q of qs) {
   console.log(`\n### ${q}`);
   const t0 = Date.now();
   const r = await agent.ask(q);
-  console.log(md(r.text));
+  console.log(formatAnswer(r.text));
   console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s | tools: ${r.toolsUsed.join(", ") || "none"} | unsupported: ${r.unsupported.join(", ") || "none"}]`);
 }
 process.exit(0);
