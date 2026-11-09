@@ -5,7 +5,7 @@
  */
 import type { ToolDef } from "../lib/corti.ts";
 import { TODAY, addDays, daysAgo } from "./config.ts";
-import { briefItems, fmtDate, money, pct, type AccountView, type Book, type Kind } from "./book.ts";
+import { briefItems, fmtDate, money, pct, sourceTag, type AccountView, type Book, type Kind } from "./book.ts";
 import type { CrmClient } from "./crm/client.ts";
 
 const norm = (s: string) => s.toLowerCase().replace(/\b(group|llc|ltd|inc|healthcare)\b/g, "").replace(/[^a-z0-9]/g, "");
@@ -27,9 +27,9 @@ export function findAccount(book: Book, query: string): { account: AccountView |
 function summary(a: AccountView) {
   return {
     id: a.id, name: a.name, stage: a.stage, owner: a.owner, tag: a.kind, priority: a.priority,
-    headline: a.headline,
-    other_signals: a.findings.slice(1, 3).map((f) => f.text),
-    suggested_next_step: a.nextStep_suggested,
+    headline: a.findings[0] ? `${a.headline} ${sourceTag(a.findings[0].source)}` : a.headline,
+    other_signals: a.findings.slice(1, 3).map((f) => `${f.text} ${sourceTag(f.source)}`),
+    suggested_next_step: `${a.nextStep_suggested} (suggestion, not from the CRM)`,
     confidence: a.confidence,
     caveats: a.caveats.slice(0, 2),
   };
@@ -42,24 +42,25 @@ export function accountFacts(a: AccountView) {
     match: { method: a.match.method, confidence: a.match.confidence, note: a.match.note },
     open_deal: a.openOpp ? { name: a.openOpp.name, value: money(a.openOpp.value), stage: a.openOpp.stage, close_date: fmtDate(a.openOpp.closeDate), days_to_close: a.openOpp.daysToClose, next_step: a.openOpp.nextStep } : null,
     renewal: a.renewal ? { value: money(a.renewal.value), date: fmtDate(a.renewal.closeDate), days_to_renewal: a.renewal.daysToRenewal } : null,
-    contracts: a.contracts.map((k) => ({ type: k.type, amount: money(k.amount), balance_left: `${k.balancePct}%`, ends: fmtDate(k.ending_before), days_to_end: k.daysToEnd, low_balance: k.low })),
+    contracts: a.contracts.map((k) => ({ source: "[Billing]", type: k.type, amount: money(k.amount), balance_left: `${k.balancePct}% (${money(k.balance)})`, starts: fmtDate(k.starting_at), ends: fmtDate(k.ending_before), days_to_end: k.daysToEnd, low_balance: k.low,
+      runway_estimate: k.runwayDays != null ? `~${k.runwayDays} days (ESTIMATE: average spend since ${fmtDate(k.starting_at)}, assumes linear burn; balances don't track usage in this data)` : "cannot be estimated (no spend recorded)" })),
     usage: a.match.method === "ambiguous" ? { note: "not attributed - ambiguous match", candidates: a.candidates.map((t) => ({ tenant: t.name, prod_trend: pct(t.trendPct), prod_requests_last_28d: t.prodReqL28 })) } : {
       prod_trend_28d: pct(a.usage.trendPct), trend_class: a.usage.trendClass, prod_requests_last_28d: a.usage.prodL28, prod_requests_prior_28d: a.usage.prodP28,
       tokens_trend: pct(a.usage.tokensTrend), transcribe_trend: pct(a.usage.transcribeTrend), signals_agree: a.usage.agreement,
       sandbox_requests_last_28d: a.usage.sandboxL28, sandbox_requests_prior_28d: a.usage.sandboxP28,
       tenants: a.tenants.map((t) => ({ tenant: t.name, region: t.region, prod_trend: pct(t.trendPct), weekly_prod_requests_oldest_first: t.weekly })),
     },
-    findings: a.findings.map((f) => ({ tag: f.kind, signal: f.text, source: f.source, confidence: f.confidence, caveat: f.caveat, meddpicc: f.meddpicc, action: f.action })),
-    meddpicc: a.meddpicc.map((m) => ({ element: `${m.letter} ${m.name}`, status: m.status, detail: m.detail })),
-    contacts: a.contacts.map((c) => ({ name: c.name, title: c.title, role_from_title: c.role, email: c.email ?? "placeholder/none", last_email: c.lastEmail ? `${c.lastEmailDirection} ${c.lastEmail}` : null })),
+    findings: a.findings.map((f) => ({ tag: f.kind, signal: f.text, source: `${sourceTag(f.source)} ${f.source}`, confidence: f.confidence, caveat: f.caveat, meddpicc: f.meddpicc, suggested_action: `${f.action} (suggestion, not from the CRM)` })),
+    meddpicc: a.meddpicc.map((m) => ({ element: `${m.letter} ${m.name}`, status: m.status, detail: m.detail, basis: m.basis, source: `[${m.source}]`, how_determined: m.how })),
+    contacts: a.contacts.map((c) => ({ name: c.name, title: `${c.title} [CRM]`, role: `${c.role} (INFERRED from job title)`, email: c.email ?? "no real address (placeholder)", last_email: c.lastEmail ? `${c.lastEmailDirection} ${c.lastEmail} [CRM]` : "no recorded email exchange [CRM]" })),
     notes: a.notes,
     meetings: a.meetings,
     recent_activity: a.recent,
     open_tasks: a.openTasks,
     crm_next_step: a.nextStep,
     last_crm_contact: a.lastContactAt ? `${a.lastContactAt} (${a.daysSinceContact} days ago)` : null,
-    suggested_next_step: a.nextStep_suggested,
-    priority: { score: a.priority, why: a.priorityWhy },
+    suggested_next_step: `${a.nextStep_suggested} (suggestion, not from the CRM)`,
+    priority: { score: a.priority, why: a.priorityWhy, note: "computed ranking score, not a CRM field" },
     overall_confidence: a.confidence,
     caveats: a.caveats,
   };

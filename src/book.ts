@@ -24,7 +24,26 @@ export type Finding = {
   meddpicc?: Letter;
 };
 
-export type MeddpiccItem = { letter: Letter; name: string; status: "evidence" | "concern" | "unknown"; detail: string };
+/** basis: "data" = read directly from a record; "inferred" = our interpretation (title, keyword or email-direction rules). */
+export type MeddpiccItem = { letter: Letter; name: string; status: "evidence" | "concern" | "unknown"; detail: string; basis?: "data" | "inferred"; source?: string; how?: string };
+
+/** Short source tag shown next to every fact: where it came from. */
+export function sourceTag(source: string): string {
+  const s = source.toLowerCase();
+  const tags = [s.includes("crm") && "CRM", s.includes("usage") && "Usage", s.includes("contract") && "Billing", s.includes("join") && "Match"].filter(Boolean);
+  return `[${tags.join("+") || "Derived"}${s.includes("derived") ? ", estimate" : ""}]`;
+}
+
+const MEDDPICC_BASIS: Record<Letter, { basis: "data" | "inferred"; source: string; how: string }> = {
+  M: { basis: "data", source: "Usage+Billing", how: "28-day production usage trend and contract balance, read from analytics" },
+  E: { basis: "inferred", source: "CRM contacts+emails", how: "economic buyer INFERRED from job title (Chief/VP/Head of); CRM persona field is unreliable" },
+  D1: { basis: "inferred", source: "CRM next steps+tasks", how: "INFERRED by keyword match (security, questionnaire, deep-dive, go-live)" },
+  D2: { basis: "data", source: "CRM opportunity", how: "deal stage and close date as recorded" },
+  P: { basis: "inferred", source: "CRM next steps+tasks", how: "INFERRED by keyword match (legal, contract, proposal, pricing, budget, renewal)" },
+  I: { basis: "data", source: "CRM meetings+notes+tasks", how: "negative meetings, concern notes, support-ticket tasks as recorded" },
+  C1: { basis: "inferred", source: "CRM emails+notes", how: "champion INFERRED from who emailed us (inbound) or 'no response' notes" },
+  C2: { basis: "data", source: "CRM notes", how: "only from notes mentioning price loss or competitors" },
+};
 
 export type ContactView = {
   id: string;
@@ -251,7 +270,7 @@ function buildAccount(
 // ---------- contacts helpers ----------
 const best = (v: AccountView, role: ContactView["role"]) =>
   v.contacts.filter((c) => c.role === role).sort((x, y) => (y.lastEmail ?? "").localeCompare(x.lastEmail ?? ""))[0];
-const who = (c?: ContactView) => (c ? `${c.name} (${c.title})` : "the account's main contact");
+const who = (c?: ContactView) => (c ? `${c.name} (${c.title}; role inferred from title)` : "the account's main contact (no suitable contact in the CRM)");
 
 // ---------- findings: the signal registry ----------
 type Detector = (v: AccountView) => Finding | Finding[] | null;
@@ -275,7 +294,7 @@ export const DETECTORS: Array<{ id: string; describe: string; detect: Detector }
       const exec = best(v, "executive");
       return { id: "declining_near_renewal", kind: "risk", points: 35, meddpicc: "M", confidence: usageConf(v), caveat: usageCaveat(v),
         text: `Production usage ${pct(v.usage.trendPct)} (last 28 days vs prior 28) with renewal in ${d} days${v.renewal ? ` (${money(v.renewal.value)})` : ""}`,
-        source: "analytics usage_events + CRM renewal opportunity / contract end",
+        source: `analytics usage_events + ${[v.renewal && "CRM renewal opportunity", v.contracts[0] && "analytics contract end"].filter(Boolean).join(" / ")}`,
         action: `Book a call with ${who(exec)} before the renewal; find out why usage dropped` };
     },
   },
@@ -347,7 +366,7 @@ export const DETECTORS: Array<{ id: string; describe: string; detect: Detector }
       const val = v.renewal?.value ?? v.contracts[0]?.amount ?? null;
       return { id: "renewal_soon", kind: "renewal", points: d <= TH.renewalUrgentDays ? 15 : 10, meddpicc: "P", confidence: "high",
         text: `Renewal in ${d} days${val ? ` (${money(val)})` : ""}${v.renewal ? ` - CRM renewal date ${fmtDate(v.renewal.closeDate)}` : ""}${v.contracts[0] ? `, contract term ends ${fmtDate(v.contracts[0].ending_before)}` : ""}`,
-        source: "CRM won renewal opportunity / analytics contract end", action: "Confirm renewal terms and the signatory",
+        source: [v.renewal && "CRM won renewal opportunity", v.contracts[0] && "analytics contract end"].filter(Boolean).join(" / "), action: "Confirm renewal terms and the signatory",
         caveat: v.renewal && v.contracts[0] && Math.abs(daysFromToday(v.renewal.closeDate!) - v.contracts[0].daysToEnd) > 30 ? "CRM renewal date and contract end date disagree by over 30 days" : undefined };
     },
   },
@@ -502,7 +521,12 @@ function assessMeddpicc(v: AccountView): MeddpiccItem[] {
   // C - Competition
   const lostNote = v.notes.find((n) => /lost on price|competit/i.test(n.text));
   out.push(lostNote ? { letter: "C2", name: "Competition", status: "concern", detail: `Previously: "${lostNote.text}".` } : { letter: "C2", name: "Competition", status: "unknown", detail: "Not captured in the CRM." });
-  return out;
+  return out.map((m) => {
+    const b = MEDDPICC_BASIS[m.letter];
+    // "I" built from engagement signals (not a recorded pain) is our interpretation, not a record
+    const basis = m.letter === "I" && m.status === "evidence" ? "inferred" : b.basis;
+    return { ...m, basis, source: b.source, how: m.letter === "I" && basis === "inferred" ? "INFERRED from engagement (growing usage / positive meeting); no pain is recorded" : b.how };
+  });
 }
 
 // ---------- priority ----------
