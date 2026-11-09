@@ -18,8 +18,14 @@ It does not try to describe all 200 accounts.
     coming back.
   - **Fix the data** (`CRM HYGIENE`): stage contradictions, duplicate accounts,
     usage with no CRM account.
-- Growth gets reserved slots in the brief (3 of 8). Otherwise risk items crowd
-  it out, and an AE's day isn't only defence.
+- Growth gets **2 of the 8** brief slots. Otherwise risk crowds it out, and an
+  AE's day isn't only defence. I started with 3, but that pushed a $215k
+  at-risk renewal (VanguardMedGroup) off the list in favour of an $87k growth
+  account with only medium confidence, so it's 2 now.
+- **Nothing above the cut-off is hidden silently.** Accounts that clear the
+  priority cut-off but don't fit in the 8 are listed under "Also needs
+  attention" in the brief, and returned by `today_brief` so the model
+  mentions them.
 - **Reference date = 2025-03-14.** Every dataset stops on that day, so the
   tool treats it as "today". Measured against the real date, every account
   would look 18 months stale. It's configurable through `AE_TODAY`.
@@ -68,6 +74,11 @@ never raw tables. Every answer is then checked.
   the model received. Anything that doesn't gets printed as
   `! Not found in the data I retrieved: ...`. It's a cheap, deterministic
   backstop that doesn't rely on the model behaving.
+  - **Tolerance:** about 1% for plain numbers. Explicit bounds ("$1M+",
+    "over $1M", "under $150k") pass when the data has a value within 25% on
+    the right side. Plain rounding ("$150k" for $145k) still gets flagged,
+    and so do bounds that are true but too loose to check ("over $500k"
+    for $1.02M).
 - **Model:** `corti-s1-instant`. In side-by-side runs it gave the same
   tool-calling quality as `corti-s1` at about a third of the latency
   (10–15 s vs 30–40 s). `AE_MODEL=corti-s1` switches back.

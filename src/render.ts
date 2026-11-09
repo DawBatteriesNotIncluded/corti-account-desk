@@ -3,7 +3,7 @@
  * Goals: scannable at a glance, wrapped to the window, sources and inferences
  * visually distinct (sources dim, inferences yellow, suggestions cyan).
  */
-import { briefItems, money, pct, sourceTag, type AccountView, type Book, type Kind } from "./book.ts";
+import { alsoNeedsAttention, briefItems, money, pct, sourceTag, type AccountView, type Book, type Kind } from "./book.ts";
 
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const c = (code: string) => (s: string) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
@@ -89,6 +89,12 @@ export function renderBrief(book: Book, owner?: string | null): string {
     L.push(dim(wrap(`Why this confidence: ${a.confidenceWhy.replace(/^\w+: /, "")}`, 5, 3)));
   });
   L.push(rule());
+  const more = alsoNeedsAttention(book, owner);
+  if (more.length) {
+    const top = more.slice(0, 5).map((a) => `${a.name} (${a.id}, ${LABEL[a.kind ?? "watch"].toLowerCase()}, priority ${a.priority})`);
+    L.push(wrap(`${bold(`Also needs attention (${more.length} more above the cut-off):`)} ${top.join("; ")}${more.length > 5 ? `; and ${more.length - 5} more` : ""}. Ask "What's at risk?" or "Who is ready to grow?" for the full list.`, 2, 0));
+    L.push(rule());
+  }
   const amb = book.accounts.filter((a) => a.match.method === "ambiguous").length;
   L.push(dim(wrap(`Data caveats: ${amb} accounts have ambiguous usage matches (duplicate CRM accounts: see /links); ${book.unmatchedCustomers.length} usage tenants have no CRM account; the analytics alert table is ignored (only 1 of 35 alerts matches its own threshold).`, 0)));
   return L.join("\n");

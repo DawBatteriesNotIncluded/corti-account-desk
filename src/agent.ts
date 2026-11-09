@@ -58,12 +58,24 @@ export function groundingCheck(answer: string, facts: string): { unsupported: st
   }
   const unsupported: string[] = [];
   const text = answer.replace(DATES, " ").replace(/acc_\d+|cust_\d+|opp_\d+|tsk_\d+|con_\d+/g, " ").replace(/^\s*\d+[.)]\s/gm, " ");
-  for (const tok of text.match(NUM) ?? []) {
+  for (const m of text.matchAll(NUM)) {
+    const tok = m[0];
     const p = parseNum(tok.trim());
     if (!p) continue;
     if (p.unit === "" && p.v <= 12) continue; // counts, ranks, list numbers
-    const ok = known.some((k) => (k.unit === p.unit || (p.unit === "" && k.unit === "")) && Math.abs(Math.abs(k.v) - Math.abs(p.v)) <= Math.max(0.6, Math.abs(k.v) * 0.012));
-    if (!ok) unsupported.push(tok.trim());
+    const sameUnit = (k: { unit: string }) => k.unit === p.unit || (p.unit === "" && k.unit === "");
+    const exact = known.some((k) => sameUnit(k) && Math.abs(Math.abs(k.v) - Math.abs(p.v)) <= Math.max(0.6, Math.abs(k.v) * 0.012));
+    if (exact) continue;
+    // Honest bounds: "$1M+", "over $1M", "at least 40%" are fine if the data has a value up to 25% above;
+    // "under $150k", "less than 30%" if the data has one up to 25% below. Plain rounding ("$150k" for $145k) still fails.
+    const before = text.slice(Math.max(0, (m.index ?? 0) - 14), m.index).toLowerCase();
+    const after = text.slice((m.index ?? 0) + tok.length, (m.index ?? 0) + tok.length + 2);
+    const lower = after.startsWith("+") || /(over|more than|above|at least|exceed(s|ing)?|>)\s*$/.test(before);
+    const upper = /(under|less than|below|at most|<)\s*$/.test(before);
+    const v = Math.abs(p.v);
+    const bounded = (lower && known.some((k) => sameUnit(k) && Math.abs(k.v) >= v && Math.abs(k.v) <= v * 1.25))
+      || (upper && known.some((k) => sameUnit(k) && Math.abs(k.v) <= v && Math.abs(k.v) >= v * 0.75));
+    if (!bounded) unsupported.push(tok.trim());
   }
   for (const id of answer.match(/acc_\d+/g) ?? []) if (!facts.includes(id)) unsupported.push(id);
   // quoted text (notes, subjects, next steps) must appear verbatim in the facts

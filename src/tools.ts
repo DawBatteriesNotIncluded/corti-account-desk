@@ -5,7 +5,7 @@
  */
 import type { ToolDef } from "../lib/corti.ts";
 import { TODAY, addDays, daysAgo } from "./config.ts";
-import { briefItems, fmtDate, money, pct, sourceTag, type AccountView, type Book, type Kind } from "./book.ts";
+import { alsoNeedsAttention, briefItems, fmtDate, money, pct, sourceTag, type AccountView, type Book, type Kind } from "./book.ts";
 import type { CrmClient } from "./crm/client.ts";
 import { DIMENSIONS, loadDimensions } from "./analytics/usage.ts";
 
@@ -91,7 +91,12 @@ const owner = { type: "string", description: "CRM owner id, e.g. jordan.lee. Omi
 export const TOOLS: Record<string, Tool> = {
   today_brief: {
     def: fn("today_brief", "Ranked list of accounts that need attention today, with the reason, next step and confidence for each.", { owner, limit: { type: "number" } }),
-    run: (a, { book }) => ({ as_of: TODAY, scope: a.owner ?? "whole book", items: briefItems(book, a.owner as string | undefined, Number(a.limit ?? 8)).map(summary) }),
+    run: (a, { book }) => {
+      const o = a.owner as string | undefined, n = Number(a.limit ?? 8);
+      const more = alsoNeedsAttention(book, o, n);
+      return { as_of: TODAY, scope: o ?? "whole book", items: briefItems(book, o, n).map(summary),
+        also_needs_attention: { count: more.length, note: "above the priority cut-off but not in today's top list; mention them", accounts: more.slice(0, 8).map((x) => ({ id: x.id, name: x.name, tag: x.kind, priority: x.priority, headline: `${x.headline} ${x.findings[0] ? sourceTag(x.findings[0].source) : ""}`.trim() })) } };
+    },
   },
   get_account: {
     def: fn("get_account", "Everything known about one account: deal, renewal, contract, usage, findings, MEDDPICC assessment, contacts (roles inferred from titles), notes, meetings, recent activity, open tasks. Accepts an account id (acc_022) or a name.", { query: { type: "string" } }, ["query"]),

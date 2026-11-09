@@ -8,7 +8,7 @@ import { createApp } from "../mock-crm/app.ts";
 import { CrmDb } from "../mock-crm/db.ts";
 import { CrmClient, loadCrm } from "../src/crm/client.ts";
 import { loadAnalytics } from "../src/analytics/usage.ts";
-import { buildBook, briefItems, type Book } from "../src/book.ts";
+import { alsoNeedsAttention, buildBook, briefItems, type Book } from "../src/book.ts";
 import { classifyProject } from "../src/analytics/usage.ts";
 import { groundingCheck } from "../src/agent.ts";
 import { findAccount, TOOLS } from "../src/tools.ts";
@@ -60,6 +60,14 @@ describe("signals", () => {
   test("Cascade: $1M deal with almost no product use", () => assert.ok(ids("acc_008").includes("big_deal_low_engagement")));
   test("CrestlineChild: regional divergence is surfaced", () => assert.ok(ids("acc_011").includes("regional_divergence")));
   test("Cornerstone: closed-lost account reactivating", () => assert.ok(ids("acc_005").includes("reactivated")));
+  test("a high-value at-risk renewal isn't pushed out by a weaker growth item; leftovers are listed", () => {
+    const shown = briefItems(book).map((a) => a.id);
+    assert.ok(shown.includes("acc_187"), "VanguardMedGroup ($215k renewal, usage -32%) is in the brief");
+    assert.equal(briefItems(book).filter((a) => a.kind === "grow").length, 2);
+    const more = alsoNeedsAttention(book).map((a) => a.id);
+    assert.ok(more.includes("acc_009"), "AspenCommunity is listed under 'also needs attention'");
+    assert.ok(!more.some((id) => shown.includes(id)));
+  });
   test("brief leads with CrestlineMedical and includes growth items", () => {
     const items = briefItems(book);
     assert.equal(items[0].id, "acc_022");
@@ -146,6 +154,15 @@ describe("grounding check", () => {
   const facts = JSON.stringify({ weekly: [561, 540, 242], value: "$145k", trend: "-28%", note: "Upgrade concerns; AE needs to follow up on dissatisfaction." });
   test("accepts numbers and quotes that are in the facts", () => {
     assert.deepEqual(groundingCheck('Usage down 28%, $145k renewal, 561 -> 242. Note: "Upgrade concerns; AE needs to follow up"', facts).unsupported, []);
+  });
+  test("accepts honest bounds but still flags plain rounding", () => {
+    const f = JSON.stringify({ deal: "$1.02M", renewal: "$145k", trend: "-28%" });
+    assert.deepEqual(groundingCheck("low usage before a $1M+ close", f).unsupported, []);
+    assert.deepEqual(groundingCheck("a deal worth over $1M", f).unsupported, []);
+    assert.deepEqual(groundingCheck("renewal under $150k", f).unsupported, []);
+    assert.deepEqual(groundingCheck("usage down at least 25%", f).unsupported, []);
+    assert.deepEqual(groundingCheck("a $150k renewal", f).unsupported, ["$150k"]); // rounding, not a bound
+    assert.deepEqual(groundingCheck("a deal over $500k", f).unsupported, ["$500k"]); // true but too loose to verify
   });
   test("flags invented numbers, ids and quotes", () => {
     const r = groundingCheck('Renewal $200k, acc_999, note "customer asked for multi-year option"', facts).unsupported;

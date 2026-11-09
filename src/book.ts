@@ -568,11 +568,24 @@ function scoreAccount(v: AccountView) {
  * "grow revenue" items, so growth isn't crowded out by risk.
  */
 export function briefItems(book: Book, owner?: string | null, limit = 8): AccountView[] {
-  const pool = book.accounts.filter((a) => (!owner || a.owner === owner) && a.priority >= TH.briefMinPriority);
-  const growN = Math.max(1, Math.round(limit * 0.375));
+  const pool = briefPool(book, owner);
+  // 2 of 8 slots kept for growth: enough that growth isn't crowded out, few enough that a
+  // high-value at-risk renewal isn't pushed off the list by a weaker growth item.
+  const growN = Math.max(1, Math.round(limit * 0.25));
   const grow = pool.filter((a) => a.kind === "grow").slice(0, growN);
   const protect = pool.filter((a) => a.kind !== "grow").slice(0, limit - grow.length);
   const picked = new Set([...protect, ...grow]);
   for (const a of pool) if (picked.size < limit) picked.add(a);
   return [...picked].sort((x, y) => y.priority - x.priority);
+}
+
+/** Every account above the brief's priority cut-off, highest first. */
+export function briefPool(book: Book, owner?: string | null): AccountView[] {
+  return book.accounts.filter((a) => (!owner || a.owner === owner) && a.priority >= TH.briefMinPriority);
+}
+
+/** Accounts above the cut-off that didn't fit in the brief - listed, never silently dropped. */
+export function alsoNeedsAttention(book: Book, owner?: string | null, limit = 8): AccountView[] {
+  const shown = new Set(briefItems(book, owner, limit).map((a) => a.id));
+  return briefPool(book, owner).filter((a) => !shown.has(a.id));
 }
