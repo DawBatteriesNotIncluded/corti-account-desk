@@ -1,0 +1,173 @@
+/**
+ * Tools the LLM can call. Each returns compact, pre-formatted FACTS computed by
+ * code (book.ts), with sources, confidence and caveats. Adding a capability =
+ * adding one entry to TOOLS.
+ */
+import type { ToolDef } from "../lib/corti.ts";
+import { TODAY, addDays, daysAgo } from "./config.ts";
+import { briefItems, fmtDate, money, pct, type AccountView, type Book, type Kind } from "./book.ts";
+import type { CrmClient } from "./crm/client.ts";
+
+const norm = (s: string) => s.toLowerCase().replace(/\b(group|llc|ltd|inc|healthcare)\b/g, "").replace(/[^a-z0-9]/g, "");
+
+export function findAccount(book: Book, query: string): { account: AccountView | null; candidates: AccountView[] } {
+  const q = query.trim();
+  const byId = book.byId.get(q.toLowerCase());
+  if (byId) return { account: byId, candidates: [] };
+  const nq = norm(q);
+  if (!nq) return { account: null, candidates: [] };
+  const exact = book.accounts.filter((a) => norm(a.name) === nq);
+  if (exact.length === 1) return { account: exact[0], candidates: [] };
+  const partial = exact.length ? exact : book.accounts.filter((a) => norm(a.name).includes(nq) || nq.includes(norm(a.name)));
+  if (partial.length === 1) return { account: partial[0], candidates: [] };
+  return { account: null, candidates: partial.slice(0, 8) };
+}
+
+/** Short line used in lists. */
+function summary(a: AccountView) {
+  return {
+    id: a.id, name: a.name, stage: a.stage, owner: a.owner, tag: a.kind, priority: a.priority,
+    headline: a.headline,
+    other_signals: a.findings.slice(1, 3).map((f) => f.text),
+    suggested_next_step: a.nextStep_suggested,
+    confidence: a.confidence,
+    caveats: a.caveats.slice(0, 2),
+  };
+}
+
+/** Full fact card for one account. */
+export function accountFacts(a: AccountView) {
+  return {
+    id: a.id, name: a.name, stage: a.stage, owner: a.owner, industry: a.industry, employees: a.employees, icp_tier: a.icpTier,
+    match: { method: a.match.method, confidence: a.match.confidence, note: a.match.note },
+    open_deal: a.openOpp ? { name: a.openOpp.name, value: money(a.openOpp.value), stage: a.openOpp.stage, close_date: fmtDate(a.openOpp.closeDate), days_to_close: a.openOpp.daysToClose, next_step: a.openOpp.nextStep } : null,
+    renewal: a.renewal ? { value: money(a.renewal.value), date: fmtDate(a.renewal.closeDate), days_to_renewal: a.renewal.daysToRenewal } : null,
+    contracts: a.contracts.map((k) => ({ type: k.type, amount: money(k.amount), balance_left: `${k.balancePct}%`, ends: fmtDate(k.ending_before), days_to_end: k.daysToEnd, low_balance: k.low })),
+    usage: a.match.method === "ambiguous" ? { note: "not attributed - ambiguous match", candidates: a.candidates.map((t) => ({ tenant: t.name, prod_trend: pct(t.trendPct), prod_requests_last_28d: t.prodReqL28 })) } : {
+      prod_trend_28d: pct(a.usage.trendPct), trend_class: a.usage.trendClass, prod_requests_last_28d: a.usage.prodL28, prod_requests_prior_28d: a.usage.prodP28,
+      tokens_trend: pct(a.usage.tokensTrend), transcribe_trend: pct(a.usage.transcribeTrend), signals_agree: a.usage.agreement,
+      sandbox_requests_last_28d: a.usage.sandboxL28, sandbox_requests_prior_28d: a.usage.sandboxP28,
+      tenants: a.tenants.map((t) => ({ tenant: t.name, region: t.region, prod_trend: pct(t.trendPct), weekly_prod_requests_oldest_first: t.weekly })),
+    },
+    findings: a.findings.map((f) => ({ tag: f.kind, signal: f.text, source: f.source, confidence: f.confidence, caveat: f.caveat, meddpicc: f.meddpicc, action: f.action })),
+    meddpicc: a.meddpicc.map((m) => ({ element: `${m.letter} ${m.name}`, status: m.status, detail: m.detail })),
+    contacts: a.contacts.map((c) => ({ name: c.name, title: c.title, role_from_title: c.role, email: c.email ?? "placeholder/none", last_email: c.lastEmail ? `${c.lastEmailDirection} ${c.lastEmail}` : null })),
+    notes: a.notes,
+    meetings: a.meetings,
+    recent_activity: a.recent,
+    open_tasks: a.openTasks,
+    crm_next_step: a.nextStep,
+    last_crm_contact: a.lastContactAt ? `${a.lastContactAt} (${a.daysSinceContact} days ago)` : null,
+    suggested_next_step: a.nextStep_suggested,
+    priority: { score: a.priority, why: a.priorityWhy },
+    overall_confidence: a.confidence,
+    caveats: a.caveats,
+  };
+}
+
+const FILTERS: Record<string, (a: AccountView) => boolean> = {
+  risk: (a) => a.findings.some((f) => f.kind === "risk"),
+  grow: (a) => a.findings.some((f) => f.kind === "grow"),
+  renewals: (a) => a.findings.some((f) => f.id === "renewal_soon"),
+  closing_deals: (a) => a.findings.some((f) => f.id === "deal_closing"),
+  pipeline: (a) => !!a.openOpp,
+  watch: (a) => a.findings.some((f) => f.kind === "watch"),
+  hygiene: (a) => a.findings.some((f) => f.kind === "hygiene"),
+  all: () => true,
+};
+
+type Ctx = { book: Book; crm: CrmClient; confirm: (q: string) => Promise<boolean> };
+type Tool = { def: ToolDef; run: (args: Record<string, unknown>, ctx: Ctx) => Promise<unknown> | unknown };
+
+const fn = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolDef => ({
+  type: "function", function: { name, description, parameters: { type: "object", properties, required } },
+});
+const owner = { type: "string", description: "CRM owner id, e.g. jordan.lee. Omit for the whole book." };
+
+export const TOOLS: Record<string, Tool> = {
+  today_brief: {
+    def: fn("today_brief", "Ranked list of accounts that need attention today, with the reason, next step and confidence for each.", { owner, limit: { type: "number" } }),
+    run: (a, { book }) => ({ as_of: TODAY, scope: a.owner ?? "whole book", items: briefItems(book, a.owner as string | undefined, Number(a.limit ?? 8)).map(summary) }),
+  },
+  get_account: {
+    def: fn("get_account", "Everything known about one account: deal, renewal, contract, usage, findings, MEDDPICC assessment, contacts (roles inferred from titles), notes, meetings, recent activity, open tasks. Accepts an account id (acc_022) or a name.", { query: { type: "string" } }, ["query"]),
+    run: (a, { book }) => {
+      const r = findAccount(book, String(a.query ?? ""));
+      if (r.account) return accountFacts(r.account);
+      return { error: r.candidates.length ? "ambiguous name" : "no account found", candidates: r.candidates.map((c) => ({ id: c.id, name: c.name, stage: c.stage })) };
+    },
+  },
+  find_accounts: {
+    def: fn("find_accounts", "List accounts matching a filter, ranked by priority. Filters: risk, grow, renewals (renewing within 90 days), closing_deals (open deals closing within 45 days), pipeline (all open deals), watch, hygiene (CRM data problems), all.", {
+      filter: { type: "string", enum: Object.keys(FILTERS) }, owner, stage: { type: "string", enum: ["prospect", "evaluation", "mvp", "customer", "closed_lost"] }, limit: { type: "number" } }, ["filter"]),
+    run: (a, { book }) => {
+      const f = FILTERS[String(a.filter)] ?? FILTERS.all;
+      const rows = book.accounts.filter((x) => f(x) && (!a.owner || x.owner === a.owner) && (!a.stage || x.stage === a.stage));
+      return { filter: a.filter, total_matching: rows.length, items: rows.slice(0, Number(a.limit ?? 10)).map(summary) };
+    },
+  },
+  book_summary: {
+    def: fn("book_summary", "Totals for the book (or one owner): counts by stage and tag, open pipeline, renewals due, data-quality caveats.", { owner }),
+    run: (a, { book }) => {
+      const rows = book.accounts.filter((x) => !a.owner || x.owner === a.owner);
+      const count = (k: Kind) => rows.filter((x) => x.findings.some((f) => f.kind === k)).length;
+      const open = rows.filter((x) => x.openOpp);
+      const renew = rows.filter((x) => x.findings.some((f) => f.id === "renewal_soon"));
+      const atRisk = rows.filter((x) => x.findings.some((f) => f.id === "declining_near_renewal"));
+      return {
+        as_of: TODAY, scope: a.owner ?? "whole book", accounts: rows.length,
+        by_stage: Object.fromEntries(["customer", "evaluation", "mvp", "prospect", "closed_lost"].map((s) => [s, rows.filter((x) => x.stage === s).length])),
+        accounts_with_risk_signal: count("risk"), accounts_with_growth_signal: count("grow"), needing_attention_today: briefItems(book, a.owner as string | undefined, 100).length,
+        open_pipeline: { deals: open.length, value: money(open.reduce((s, x) => s + (x.openOpp?.value ?? 0), 0)) },
+        renewals_within_90_days: { accounts: renew.length },
+        renewal_value_at_risk: { accounts: atRisk.map((x) => x.id), value: money(atRisk.reduce((s, x) => s + (x.renewal?.value ?? x.contracts[0]?.amount ?? 0), 0)) },
+        data_caveats: [
+          `${rows.filter((x) => x.match.method === "ambiguous").length} accounts have ambiguous usage matches (duplicate CRM accounts) - usage not attributed`,
+          `${rows.filter((x) => x.match.method === "name_only").length} accounts matched to usage by name only`,
+          `${book.unmatchedCustomers.length} usage tenants have no CRM account: ${book.unmatchedCustomers.map((u) => u.name).join(", ")}`,
+          "analytics alert history ignored: only 1 of 35 alerts matches its own threshold; low balances are recomputed from contracts",
+          "about half of PRODUCTION-labelled usage comes from staging/qa/internal-named projects; only prod-named projects count as production",
+        ],
+      };
+    },
+  },
+  whats_changed: {
+    def: fn("whats_changed", "What happened recently: CRM activity (emails, meetings, notes, stage changes) in the last N days plus the biggest week-over-week production usage moves.", { days: { type: "number" }, owner }),
+    run: (a, { book }) => {
+      const days = Number(a.days ?? 7);
+      const since = addDays(TODAY, -days + 1);
+      const rows = book.accounts.filter((x) => !a.owner || x.owner === a.owner);
+      const activity = rows.flatMap((x) => x.recent.filter((r) => r.date >= since).map((r) => ({ account: `${x.name} (${x.id})`, date: r.date, what: r.what }))).sort((p, q) => q.date.localeCompare(p.date));
+      const movers = rows.filter((x) => x.match.method !== "ambiguous" && x.tenants.length).map((x) => {
+        const w = x.tenants.reduce((acc, t) => t.weekly.map((v, i) => (acc[i] ?? 0) + v), [] as number[]);
+        const last = w[w.length - 1] ?? 0, prev = w[w.length - 2] ?? 0;
+        return { account: `${x.name} (${x.id})`, last_7d: last, prior_7d: prev, change: prev >= 100 ? pct(((last - prev) / prev) * 100) : "n/a" };
+      }).filter((m) => m.change !== "n/a").sort((p, q) => Math.abs(parseFloat(q.change)) - Math.abs(parseFloat(p.change))).slice(0, 5);
+      return { window: `${since}..${TODAY}`, crm_activity: activity.slice(0, 25), crm_activity_total: activity.length, biggest_weekly_usage_moves: movers,
+        caveat: "CRM activity is sparse (1-3 records per account) and week-over-week usage moves are mostly noise; 28-day trends are the reliable usage signal." };
+    },
+  },
+  create_task: {
+    def: fn("create_task", "Create a CRM task on an account (asks the AE to confirm first).", { account_id: { type: "string" }, title: { type: "string" }, due_date: { type: "string", description: "YYYY-MM-DD" } }, ["account_id", "title"]),
+    run: async (a, { book, crm, confirm }) => {
+      const acc = book.byId.get(String(a.account_id));
+      if (!acc) return { error: "unknown account_id" };
+      if (!(await confirm(`Create task "${a.title}" on ${acc.name}${a.due_date ? ` due ${a.due_date}` : ""}?`))) return { status: "cancelled by the AE" };
+      const r = await crm.createTask({ accountId: acc.id, title: String(a.title), dueDate: a.due_date ? String(a.due_date) : undefined });
+      return { status: "created", task_id: r.task.id, note: "The mock CRM does not persist writes; this task won't appear on re-read." };
+    },
+  },
+  add_note: {
+    def: fn("add_note", "Add a note to an account in the CRM (asks the AE to confirm first).", { account_id: { type: "string" }, text: { type: "string" } }, ["account_id", "text"]),
+    run: async (a, { book, crm, confirm }) => {
+      const acc = book.byId.get(String(a.account_id));
+      if (!acc) return { error: "unknown account_id" };
+      if (!(await confirm(`Add note to ${acc.name}: "${a.text}"?`))) return { status: "cancelled by the AE" };
+      const r = await crm.addNote(acc.id, String(a.text));
+      return { status: "created", note_id: (r.note as { id: string }).id, note: "The mock CRM does not persist writes." };
+    },
+  },
+};
+
+export const toolDefs = () => Object.values(TOOLS).map((t) => t.def);
+export { daysAgo };

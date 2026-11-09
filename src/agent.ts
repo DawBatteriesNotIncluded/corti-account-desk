@@ -1,0 +1,111 @@
+/**
+ * Conversational layer: Corti Models with tool calling. The model chooses
+ * which tools to call and writes the answer; every number it states is then
+ * checked against the tool results it saw (grounding check).
+ */
+import { chat, type ChatMessage } from "../lib/corti.ts";
+import { CHAT_MODEL, TODAY } from "./config.ts";
+import type { Book } from "./book.ts";
+import type { CrmClient } from "./crm/client.ts";
+import { TOOLS, toolDefs } from "./tools.ts";
+
+export const SYSTEM_PROMPT = `You are Account Desk, a copilot for a Corti account executive (AE) with ~30 minutes before standup.
+Today is ${TODAY} (the last day in the CRM and analytics data). Corti sells clinical AI APIs (speech-to-text, text generation, coding) to healthcare companies.
+
+How to work:
+- ALWAYS get facts by calling tools. Never invent accounts, people, numbers, dates or events. If something isn't in the tool results, say it isn't in the data.
+- Only describe accounts whose facts you actually retrieved in this turn. Don't generalise about the rest ("the other 13 look similar"); offer to look them up instead.
+- Copy numbers exactly as the tools format them ($145k, -28%, 60 days). Don't do new arithmetic unless asked, and say when you do.
+- Cite accounts as Name (acc_xxx).
+- For every recommendation give: what to do, why (the evidence and its source: CRM or product usage/billing), and confidence (high/medium/low with the reason). Say plainly what is uncertain (e.g. name-only match, ambiguous usage record, runway assumes linear burn, meeting attendees not recorded).
+- Use MEDDPICC language for deals and renewals: Metrics, Economic buyer, Decision criteria, Decision process, Paper process, Identify pain, Champion, Competition. Flag concerns and unknowns explicitly; "unknown - not captured in the CRM" is a valid, useful answer.
+- When asked about an account, cover: situation, what's at stake, MEDDPICC concerns/unknowns, who to contact (name + title, role inferred from title), notes and recent activity, the next step, confidence.
+- Only create tasks or notes when the AE asks; the app asks them to confirm.
+- Be concise and scannable: short lines, numbered lists for rankings, no preamble.
+- Output is shown in a terminal: plain text with simple "-" bullets and **bold** only. No markdown tables, no emoji.`;
+
+// answer text may use thousands separators (1,127); JSON facts never do (so [561,540] stays 2 numbers)
+const NUM = /(?<![\w.-])[-+]?\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s?(?:k|M|%)?(?![\w])/g;
+const NUM_FACTS = /(?<![\w.-])[-+]?\$?\d+(?:\.\d+)?(?:k|M|%)?(?![\w])/g;
+const DATES = /\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\s(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\b(?:\s\d{4})?|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s\d{1,2}(?:st|nd|rd|th)?(?:,?\s\d{4})?/gi;
+
+function parseNum(tok: string): { v: number; unit: string } | null {
+  const m = tok.replace(/[,\s]/g, "").match(/^([-+]?)\$?(\d+(?:\.\d+)?)(k|M|%)?$/);
+  if (!m) return null;
+  const n = parseFloat(m[2]);
+  const unit = m[3] ?? (tok.includes("$") ? "$" : "");
+  const mult = unit === "k" ? 1e3 : unit === "M" ? 1e6 : 1;
+  return { v: n * mult, unit: unit === "%" ? "%" : unit === "k" || unit === "M" || unit === "$" ? "$" : "" };
+}
+
+/** Numbers and account ids in `answer` that don't appear in `facts`. */
+export function groundingCheck(answer: string, facts: string): { unsupported: string[] } {
+  const known: Array<{ v: number; unit: string }> = [];
+  for (const tok of facts.replace(DATES, " ").match(NUM_FACTS) ?? []) {
+    const p = parseNum(tok);
+    if (p) known.push(p, { v: p.v, unit: "" });
+  }
+  const unsupported: string[] = [];
+  const text = answer.replace(DATES, " ").replace(/acc_\d+|cust_\d+|opp_\d+|tsk_\d+|con_\d+/g, " ").replace(/^\s*\d+[.)]\s/gm, " ");
+  for (const tok of text.match(NUM) ?? []) {
+    const p = parseNum(tok.trim());
+    if (!p) continue;
+    if (p.unit === "" && p.v <= 12) continue; // counts, ranks, list numbers
+    const ok = known.some((k) => (k.unit === p.unit || (p.unit === "" && k.unit === "")) && Math.abs(Math.abs(k.v) - Math.abs(p.v)) <= Math.max(0.6, Math.abs(k.v) * 0.012));
+    if (!ok) unsupported.push(tok.trim());
+  }
+  for (const id of answer.match(/acc_\d+/g) ?? []) if (!facts.includes(id)) unsupported.push(id);
+  // quoted text (notes, subjects, next steps) must appear verbatim in the facts
+  const flat = facts.replace(/\\"/g, '"').toLowerCase();
+  for (const m of answer.matchAll(/"([^"\n]{12,})"/g)) {
+    const q = m[1].toLowerCase().replace(/[.…]+$/, "");
+    if (!flat.includes(q)) unsupported.push(`"${m[1]}"`);
+  }
+  return { unsupported: [...new Set(unsupported)] };
+}
+
+export type AgentDeps = { book: Book; crm: CrmClient; confirm: (q: string) => Promise<boolean>; owner: () => string | null; onTool?: (name: string, args: unknown) => void };
+
+export class Agent {
+  private history: ChatMessage[] = [];
+  /** every tool result this session - the grounding check compares answers against these */
+  private facts: string[] = [];
+  constructor(private deps: AgentDeps) {}
+
+  reset() { this.history = []; this.facts = []; }
+
+  async ask(question: string): Promise<{ text: string; unsupported: string[]; toolsUsed: string[] }> {
+    const owner = this.deps.owner();
+    const scope = owner ? `\n(The AE is ${owner}; pass owner="${owner}" to list tools unless they ask about the whole book.)` : "\n(No owner selected: the AE is looking at the whole book.)";
+    const messages: ChatMessage[] = [{ role: "system", content: SYSTEM_PROMPT + scope }, ...this.history.slice(-12), { role: "user", content: question }];
+    const factsSeen: string[] = [];
+    const toolsUsed: string[] = [];
+    for (let round = 0; round < 6; round++) {
+      // Round 0 must call a tool: every answer is grounded in fresh facts, never in chat memory.
+      const res = await chat({ model: CHAT_MODEL, messages, tools: toolDefs(), toolChoice: round === 0 ? "required" : "auto", temperature: 0.2 });
+      if (!res.toolCalls.length) {
+        const text = res.content.trim();
+        this.facts.push(...factsSeen);
+        const { unsupported } = groundingCheck(text, this.facts.join("\n"));
+        if (!factsSeen.length) unsupported.unshift("(no tool was called - nothing in this answer is grounded)");
+        this.history.push({ role: "user", content: question }, { role: "assistant", content: text });
+        if (this.facts.length > 40) this.facts = this.facts.slice(-40);
+        return { text, unsupported, toolsUsed };
+      }
+      messages.push({ role: "assistant", content: res.content || null, tool_calls: res.toolCalls });
+      for (const tc of res.toolCalls) {
+        let args: Record<string, unknown> = {};
+        try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* keep {} */ }
+        this.deps.onTool?.(tc.function.name, args);
+        toolsUsed.push(tc.function.name);
+        const tool = TOOLS[tc.function.name];
+        let out: unknown;
+        try { out = tool ? await tool.run(args, this.deps) : { error: `unknown tool ${tc.function.name}` }; } catch (e) { out = { error: (e as Error).message }; }
+        const s = JSON.stringify(out);
+        factsSeen.push(s);
+        messages.push({ role: "tool", tool_call_id: tc.id, content: s.length > 60_000 ? s.slice(0, 60_000) : s });
+      }
+    }
+    return { text: "I couldn't finish that within the tool-call limit. Try a narrower question.", unsupported: [], toolsUsed };
+  }
+}

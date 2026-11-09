@@ -1,0 +1,2136 @@
+{
+ "generated_from": {
+  "crm": "data/crm/crm.sqlite (read-only, direct)",
+  "analytics": "data/analytics/analytics.sqlite (read-only)",
+  "aggregate": "scratchpad/work/agg.sqlite (one pass over usage_events: customer x project x day x event_type x env x is_nfr, plus dimension tables)",
+  "scripts": "scratchpad/scripts/*.py"
+ },
+ "reference_date": "2025-03-14",
+ "tables": [
+  {
+   "source": "crm",
+   "table": "accounts",
+   "rows": 200,
+   "verdict": "KEEP",
+   "reason": "Core commercial record, one row per account (200). Mostly clean; two mirrored opportunity fields and updated_at are redundant.",
+   "columns": [
+    {
+     "name": "id",
+     "api_name": "id",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 200,
+     "summary": "acc_001 .. acc_200; 200 distinct",
+     "samples": [
+      "acc_014",
+      "acc_015"
+     ],
+     "verdict": "KEEP",
+     "reason": "Primary key and API path parameter.",
+     "use": "Key for every CRM call; preview row id."
+    },
+    {
+     "name": "name",
+     "api_name": "name",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 198,
+     "summary": "AcmePathology LLC .. WindsorFamily Inc; 198 distinct",
+     "samples": [
+      "SageMedGroup Group - North",
+      "SageMedGroup Group - West"
+     ],
+     "verdict": "CLEAN-THEN-KEEP",
+     "reason": "Display name; needs normalising for the join (drop Group/LLC/Ltd/Inc/Healthcare and ' - North/West', strip punctuation). 2 exact duplicate names and 7 duplicate-name clusters.",
+     "use": "Join key #3 (name) to customers.customer_name; display."
+    },
+    {
+     "name": "domain",
+     "api_name": "domain",
+     "type": "TEXT",
+     "null_pct": 11.5,
+     "distinct": 174,
+     "summary": "acme-physician.example .. windsorfamily.example; 174 distinct",
+     "samples": [
+      "sagemedgroup-north.example",
+      "sagemedgroup-west.example"
+     ],
+     "verdict": "CLEAN-THEN-KEEP",
+     "reason": "Best join key but 23 null (11.5%); strip '.example' and hyphens (64 of 141 domain links needed hyphen removal). 3 domains are shared by two accounts.",
+     "use": "Join key #1 (domain) and #2 (vs billing-email domain)."
+    },
+    {
+     "name": "industry",
+     "api_name": "industry",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 9,
+     "summary": "Ambulatory .. Telehealth; 9 distinct",
+     "samples": [
+      "Hospital",
+      "Diagnostics"
+     ],
+     "verdict": "KEEP",
+     "reason": "9 clean values (one generic 'Healthcare').",
+     "use": "Context/filters only."
+    },
+    {
+     "name": "employee_count",
+     "api_name": "employeeCount",
+     "type": "INTEGER",
+     "null_pct": 0.0,
+     "distinct": 195,
+     "summary": "111 .. 8970; 195 distinct",
+     "samples": [
+      "196",
+      "421"
+     ],
+     "verdict": "KEEP",
+     "reason": "Populated 100%; plausible range. Not related to icpTier.",
+     "use": "Context (size)."
+    },
+    {
+     "name": "owner_id",
+     "api_name": "ownerId",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 10,
+     "summary": "alex.rivera .. tom.wright; 10 distinct",
+     "samples": [
+      "david.okafor",
+      "noah.patel"
+     ],
+     "verdict": "KEEP",
+     "reason": "10 owners; consistent with task owners (274/274).",
+     "use": "Who owns the account; book filter."
+    },
+    {
+     "name": "stage",
+     "api_name": "stage",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 5,
+     "summary": "customer (77), evaluation (48), prospect (35), closed_lost (27), mvp (13)",
+     "samples": [
+      "customer",
+      "evaluation"
+     ],
+     "verdict": "KEEP",
+     "reason": "5 values; consistent with stage_change activities (to_stage = stage on all 88) and opportunity stages.",
+     "use": "Commercial state; base for stage-vs-reality checks."
+    },
+    {
+     "name": "created_at",
+     "api_name": "createdAt",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 183,
+     "summary": "2022-09-28T08:00:00.000Z .. 2025-02-24T08:00:00.000Z; 183 distinct",
+     "samples": [
+      "2024-07-06T08:00:00.000Z",
+      "2024-02-20T08:00:00.000Z"
+     ],
+     "verdict": "DERIVE-ONLY",
+     "reason": "Valid dates, but gap to customers.created_at is random (-638..+769 days), so it does not help disambiguate.",
+     "use": "Account age only."
+    },
+    {
+     "name": "updated_at",
+     "api_name": "updatedAt",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 57,
+     "summary": "2024-06-08T08:00:00.000Z .. 2025-03-14T08:00:00.000Z; 57 distinct",
+     "samples": [
+      "2025-03-03T08:00:00.000Z",
+      "2025-03-06T08:00:00.000Z"
+     ],
+     "verdict": "DROP",
+     "reason": "Equals lastContactAt on 181/200 accounts; carries no extra information.",
+     "use": "None."
+    },
+    {
+     "name": "last_contact_at",
+     "api_name": "lastContactAt",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 57,
+     "summary": "2024-05-20T08:00:00.000Z .. 2025-03-14T08:00:00.000Z; 57 distinct",
+     "samples": [
+      "2025-03-03T08:00:00.000Z",
+      "2025-03-06T08:00:00.000Z"
+     ],
+     "verdict": "KEEP",
+     "reason": "Matches the latest email/meeting/note on 158 of 172 accounts that have one; the only trustworthy recency field.",
+     "use": "Signal: days since last CRM contact."
+    },
+    {
+     "name": "next_step",
+     "api_name": "nextStep",
+     "type": "TEXT",
+     "null_pct": 32.0,
+     "distinct": 23,
+     "summary": "Approve expansion .. Synced with parent accou; 23 distinct",
+     "samples": [
+      "Synced with parent account",
+      "Part of master agreement"
+     ],
+     "verdict": "KEEP",
+     "reason": "23 templated phrases; identical to the opportunity nextStep on all 135 accounts with an opp; null for all prospects/closed_lost.",
+     "use": "Context in answers ('next step: Send proposal')."
+    },
+    {
+     "name": "opportunity_amount",
+     "api_name": "opportunityAmount",
+     "type": "REAL",
+     "null_pct": 32.5,
+     "distinct": 134,
+     "summary": "20538.0 .. 1024463.0; 134 distinct",
+     "samples": [
+      "108312.0",
+      "742528.0"
+     ],
+     "verdict": "DROP",
+     "reason": "Exact mirror of opportunities.value (135/135), including 67 closed-won renewals, so it is not the 'open value' the docs describe.",
+     "use": "None; use /opportunities value + status."
+    },
+    {
+     "name": "close_date",
+     "api_name": "closeDate",
+     "type": "TEXT",
+     "null_pct": 32.5,
+     "distinct": 88,
+     "summary": "2025-03-30 .. 2025-09-29; 88 distinct",
+     "samples": [
+      "2025-06-12",
+      "2025-04-28"
+     ],
+     "verdict": "DROP",
+     "reason": "Exact mirror of opportunities.close_date (135/135); for won opps it is a future date, so its meaning depends on status.",
+     "use": "None; use /opportunities closeDate + status."
+    },
+    {
+     "name": "icp_tier",
+     "api_name": "icpTier",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 4,
+     "summary": "mid_market (53), enterprise (53), none (49), smb (45)",
+     "samples": [
+      "mid_market",
+      "enterprise"
+     ],
+     "verdict": "KEEP",
+     "reason": "4 values incl. 'none' (49). Not validated by size (mean employees 3.7k-4.7k in every tier).",
+     "use": "Display/segment only; do not rank on it."
+    }
+   ]
+  },
+  {
+   "source": "crm",
+   "table": "contacts",
+   "rows": 730,
+   "verdict": "CLEAN-THEN-KEEP",
+   "reason": "730 contacts (1-7 per account). Names/titles usable; persona is noisy, emails of no-domain accounts are placeholders, and last_contacted_at is a copy.",
+   "columns": [
+    {
+     "name": "id",
+     "api_name": "id",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 730,
+     "summary": "con_001 .. con_730; 730 distinct",
+     "samples": [
+      "con_001",
+      "con_002"
+     ],
+     "verdict": "KEEP",
+     "reason": "Primary key; every email-activity and task contact_id resolves to a contact of the same account.",
+     "use": "Link tasks/emails to people."
+    },
+    {
+     "name": "account_id",
+     "api_name": "accountId",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 200,
+     "summary": "acc_001 .. acc_200; 200 distinct",
+     "samples": [
+      "acc_014",
+      "acc_015"
+     ],
+     "verdict": "KEEP",
+     "reason": "FK, all 200 accounts covered.",
+     "use": "Grouping."
+    },
+    {
+     "name": "name",
+     "api_name": "name",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 414,
+     "summary": "Alex Brown .. Zoe Wilson; 414 distinct",
+     "samples": [
+      "Kai Jones",
+      "Riley Jackson"
+     ],
+     "verdict": "KEEP",
+     "reason": "Generated names (414 distinct).",
+     "use": "Who to contact."
+    },
+    {
+     "name": "email",
+     "api_name": "email",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 728,
+     "summary": "alex.brown@example.inval .. zoe.wilson@marigoldpartn; 728 distinct",
+     "samples": [
+      "kai.jones@sagemedgroup-north.example",
+      "riley.jackson@sagemedgroup-north.example"
+     ],
+     "verdict": "CLEAN-THEN-KEEP",
+     "reason": "81 (11%) are placeholders @example.invalid (every contact of the 23 no-domain accounts); 2 duplicates. Null them before use.",
+     "use": "Contact detail; NOT a join key."
+    },
+    {
+     "name": "title",
+     "api_name": "title",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 16,
+     "summary": "CTO .. VP of Operations; 16 distinct",
+     "samples": [
+      "Revenue Cycle Manager",
+      "Practice Manager"
+     ],
+     "verdict": "KEEP",
+     "reason": "16 clean titles; the reliable role field.",
+     "use": "Pick the right person (derive role from title)."
+    },
+    {
+     "name": "persona",
+     "api_name": "persona",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 4,
+     "summary": "executive (259), clinical (182), operations (167), technical (122)",
+     "samples": [
+      "clinical",
+      "executive"
+     ],
+     "verdict": "DROP",
+     "reason": "Only executive/clinical/operations/technical (docs' champion/economic_buyer never occur). Technical titles always map to 'technical', the other 11 titles are spread at random over the other three.",
+     "use": "None; derive role from title."
+    },
+    {
+     "name": "last_contacted_at",
+     "api_name": "lastContactedAt",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 57,
+     "summary": "2024-05-20T08:00:00.000Z .. 2025-03-14T08:00:00.000Z; 57 distinct",
+     "samples": [
+      "2025-03-03T08:00:00.000Z",
+      "2025-03-06T08:00:00.000Z"
+     ],
+     "verdict": "DROP",
+     "reason": "Copied from the account's lastContactAt for 730/730 contacts.",
+     "use": "None."
+    }
+   ]
+  },
+  {
+   "source": "crm",
+   "table": "activities",
+   "rows": 267,
+   "verdict": "KEEP",
+   "reason": "267 rows; 198 accounts have 1-3 activities, 2 have none. Sparse and templated, but the 4 meetings and 5 notes are the only qualitative signal in the CRM.",
+   "columns": [
+    {
+     "name": "id",
+     "api_name": "id",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 267,
+     "summary": "act_001 .. act_267; 267 distinct",
+     "samples": [
+      "act_001",
+      "act_002"
+     ],
+     "verdict": "KEEP",
+     "reason": "Primary key.",
+     "use": "Reference."
+    },
+    {
+     "name": "account_id",
+     "api_name": "accountId",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 198,
+     "summary": "acc_001 .. acc_200; 198 distinct",
+     "samples": [
+      "acc_001",
+      "acc_002"
+     ],
+     "verdict": "KEEP",
+     "reason": "FK.",
+     "use": "Grouping."
+    },
+    {
+     "name": "activity_type",
+     "api_name": "type",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 4,
+     "summary": "email (170), stage_change (88), note (5), meeting (4)",
+     "samples": [
+      "email",
+      "note"
+     ],
+     "verdict": "KEEP",
+     "reason": "email 170, stage_change 88, note 5, meeting 4; no unknown types (so the API's mapper never throws).",
+     "use": "Route to the type-specific fields below."
+    },
+    {
+     "name": "direction",
+     "api_name": "direction",
+     "type": "TEXT",
+     "null_pct": 36.3,
+     "distinct": 2,
+     "summary": "outbound (88), inbound (82)",
+     "samples": [
+      "outbound",
+      "inbound"
+     ],
+     "verdict": "KEEP",
+     "reason": "Email only: inbound 82 / outbound 88.",
+     "use": "Who touched last (weak signal)."
+    },
+    {
+     "name": "timestamp",
+     "api_name": "timestamp",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 101,
+     "summary": "2023-03-30T08:00:00.000Z .. 2025-03-14T08:00:00.000Z; 101 distinct",
+     "samples": [
+      "2025-02-22T08:00:00.000Z",
+      "2025-01-29T08:00:00.000Z"
+     ],
+     "verdict": "KEEP",
+     "reason": "Every CRM timestamp is T08:00:00.000Z, so day granularity only; same-day order is undefined.",
+     "use": "Recency, timelines."
+    },
+    {
+     "name": "contact_id",
+     "api_name": "contactId / contactIds",
+     "type": "TEXT",
+     "null_pct": 36.3,
+     "distinct": 170,
+     "summary": "con_009 .. con_728; 170 distinct",
+     "samples": [
+      "con_009",
+      "con_014"
+     ],
+     "verdict": "KEEP",
+     "reason": "Set on all 170 emails; NULL on all meetings, so meeting contactIds is always [] in the API.",
+     "use": "Who was emailed."
+    },
+    {
+     "name": "subject",
+     "api_name": "subject",
+     "type": "TEXT",
+     "null_pct": 36.3,
+     "distinct": 2,
+     "summary": "Quick update on the evaluation (88), Re: follow up on the pilot (82)",
+     "samples": [
+      "Quick update on the evaluation",
+      "Re: follow up on the pilot"
+     ],
+     "verdict": "DROP",
+     "reason": "Two templates, fully determined by direction ('Quick update on the evaluation' = outbound, 'Re: follow up on the pilot' = inbound), even on customer accounts.",
+     "use": "None."
+    },
+    {
+     "name": "outcome",
+     "api_name": "outcome",
+     "type": "TEXT",
+     "null_pct": 98.5,
+     "distinct": 2,
+     "summary": "positive (3), negative (1)",
+     "samples": [
+      "positive",
+      "negative"
+     ],
+     "verdict": "KEEP",
+     "reason": "4 meetings: positive acc_004, acc_010, acc_021; negative acc_022.",
+     "use": "Signal: meeting outcome (high value, tiny coverage)."
+    },
+    {
+     "name": "from_stage",
+     "api_name": "from",
+     "type": "TEXT",
+     "null_pct": 67.0,
+     "distinct": 2,
+     "summary": "prospect (75), evaluation (13)",
+     "samples": [
+      "prospect",
+      "evaluation"
+     ],
+     "verdict": "DERIVE-ONLY",
+     "reason": "stage_change only: prospect 75 / evaluation 13.",
+     "use": "Stage history; time in stage."
+    },
+    {
+     "name": "to_stage",
+     "api_name": "to",
+     "type": "TEXT",
+     "null_pct": 67.0,
+     "distinct": 3,
+     "summary": "evaluation (48), closed_lost (27), mvp (13)",
+     "samples": [
+      "evaluation",
+      "closed_lost"
+     ],
+     "verdict": "DERIVE-ONLY",
+     "reason": "Always equals the current account stage; customers and prospects have no stage_change rows.",
+     "use": "Stage history; time in stage."
+    },
+    {
+     "name": "text",
+     "api_name": "text",
+     "type": "TEXT",
+     "null_pct": 98.1,
+     "distinct": 5,
+     "summary": "No response since the security review. Next step unclear. (1), Reached out a few times, no deal opened. (1), Lost on price in Q3. Keep warm. (1), Quiet for a while, low priority. (1), Upgrade concerns; AE needs to follow up on dissatisfaction. (1)",
+     "samples": [
+      "No response since the security review. Next step unclear.",
+      "Reached out a few times, no deal opened."
+     ],
+     "verdict": "KEEP",
+     "reason": "5 notes, all meaningful (acc_022 dissatisfaction, acc_001 stalled security review, acc_005 'Lost on price... keep warm', acc_003, acc_017).",
+     "use": "Signal: note text (quote verbatim)."
+    }
+   ]
+  },
+  {
+   "source": "crm",
+   "table": "opportunities",
+   "rows": 135,
+   "verdict": "KEEP",
+   "reason": "135 opps, exactly one per account that has one (open 68 / won 67, no lost). Clean apart from owner and stage-change dates.",
+   "columns": [
+    {
+     "name": "id",
+     "api_name": "id",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 135,
+     "summary": "opp_001 .. opp_135; 135 distinct",
+     "samples": [
+      "opp_001",
+      "opp_002"
+     ],
+     "verdict": "KEEP",
+     "reason": "Primary key.",
+     "use": "Reference."
+    },
+    {
+     "name": "account_id",
+     "api_name": "accountId",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 135,
+     "summary": "acc_001 .. acc_200; 135 distinct",
+     "samples": [
+      "acc_001",
+      "acc_002"
+     ],
+     "verdict": "KEEP",
+     "reason": "FK; 135 distinct accounts (none for 27 closed_lost, 35 prospects, 3 customers).",
+     "use": "Grouping."
+    },
+    {
+     "name": "name",
+     "api_name": "name",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 129,
+     "summary": "Enterprise license .. Renewal - willowjoint; 129 distinct",
+     "samples": [
+      "Enterprise license",
+      "Large enterprise rollout"
+     ],
+     "verdict": "KEEP",
+     "reason": "Deal type: 'Renewal - x' (67), Expansion, Enterprise license, Initial contract, Master agreement...",
+     "use": "Classify deal (renewal vs expansion vs new)."
+    },
+    {
+     "name": "stage",
+     "api_name": "stage",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 3,
+     "summary": "closed_won (67), evaluation (53), mvp (15)",
+     "samples": [
+      "evaluation",
+      "mvp"
+     ],
+     "verdict": "KEEP",
+     "reason": "closed_won 67, evaluation 53, mvp 15.",
+     "use": "Pipeline stage."
+    },
+    {
+     "name": "value",
+     "api_name": "value",
+     "type": "REAL",
+     "null_pct": 0.0,
+     "distinct": 134,
+     "summary": "20538.0 .. 1024463.0; 134 distinct",
+     "samples": [
+      "108312.0",
+      "742528.0"
+     ],
+     "verdict": "KEEP",
+     "reason": "$20.5k-$1.02M; open pipeline $13.3M.",
+     "use": "Signal: open value at stake."
+    },
+    {
+     "name": "opened_at",
+     "api_name": "openedAt",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 79,
+     "summary": "2024-10-30T08:00:00.000Z .. 2025-03-09T08:00:00.000Z; 79 distinct",
+     "samples": [
+      "2024-12-24T08:00:00.000Z",
+      "2024-11-17T08:00:00.000Z"
+     ],
+     "verdict": "KEEP",
+     "reason": "2024-10-30..2025-03-09. 18 opps report a stage change before they were opened.",
+     "use": "Deal age."
+    },
+    {
+     "name": "close_date",
+     "api_name": "closeDate",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 88,
+     "summary": "2025-03-30 .. 2025-09-29; 88 distinct",
+     "samples": [
+      "2025-06-12",
+      "2025-04-28"
+     ],
+     "verdict": "KEEP",
+     "reason": "Open: expected close (7 within 30 days). Won: future date 2025-03-30..09-29, read as the renewal date; differs from contracts.ending_before (median 77 days apart).",
+     "use": "Signal: days to close / renewal."
+    },
+    {
+     "name": "last_stage_change_at",
+     "api_name": "lastStageChangeAt",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 51,
+     "summary": "2025-01-13T08:00:00.000Z .. 2025-03-12T08:00:00.000Z; 51 distinct",
+     "samples": [
+      "2025-01-28T08:00:00.000Z",
+      "2025-02-25T08:00:00.000Z"
+     ],
+     "verdict": "CLEAN-THEN-KEEP",
+     "reason": "Never equals the stage_change activity date (0/61) and precedes openedAt on 18 opps; treat as approximate.",
+     "use": "Days in stage (open opps 2-45 days)."
+    },
+    {
+     "name": "next_step",
+     "api_name": "nextStep",
+     "type": "TEXT",
+     "null_pct": 1.5,
+     "distinct": 20,
+     "summary": "Approve expansion .. Send proposal; 20 distinct",
+     "samples": [
+      "Close executive buy-in",
+      "Scheduled exec review"
+     ],
+     "verdict": "KEEP",
+     "reason": "20 templated phrases; same text as account nextStep.",
+     "use": "Context."
+    },
+    {
+     "name": "owner_id",
+     "api_name": "ownerId",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 10,
+     "summary": "alex.rivera .. tom.wright; 10 distinct",
+     "samples": [
+      "priya.nair",
+      "tom.wright"
+     ],
+     "verdict": "DROP",
+     "reason": "Differs from the account owner on 112/135 opps; the account owner is the one consistent with tasks.",
+     "use": "None (show account owner)."
+    },
+    {
+     "name": "status",
+     "api_name": "status",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 2,
+     "summary": "open (68), won (67)",
+     "samples": [
+      "open",
+      "won"
+     ],
+     "verdict": "KEEP",
+     "reason": "open 68 / won 67.",
+     "use": "Separate open pipeline from renewals."
+    }
+   ]
+  },
+  {
+   "source": "crm",
+   "table": "tasks",
+   "rows": 274,
+   "verdict": "KEEP",
+   "reason": "274 tasks on 136 accounts. Structurally clean but every task is due on or before today, so 'overdue' is the norm.",
+   "columns": [
+    {
+     "name": "id",
+     "api_name": "id",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 274,
+     "summary": "tsk_001 .. tsk_274; 274 distinct",
+     "samples": [
+      "tsk_001",
+      "tsk_002"
+     ],
+     "verdict": "KEEP",
+     "reason": "Primary key.",
+     "use": "Reference."
+    },
+    {
+     "name": "account_id",
+     "api_name": "accountId",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 136,
+     "summary": "acc_002 .. acc_200; 136 distinct",
+     "samples": [
+      "acc_014",
+      "acc_015"
+     ],
+     "verdict": "KEEP",
+     "reason": "FK.",
+     "use": "Grouping."
+    },
+    {
+     "name": "contact_id",
+     "api_name": "contactId",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 218,
+     "summary": "con_001 .. con_730; 218 distinct",
+     "samples": [
+      "con_004",
+      "con_001"
+     ],
+     "verdict": "KEEP",
+     "reason": "All 274 resolve to a contact of the same account.",
+     "use": "Who the task is about."
+    },
+    {
+     "name": "owner_id",
+     "api_name": "ownerId",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 10,
+     "summary": "alex.rivera .. tom.wright; 10 distinct",
+     "samples": [
+      "david.okafor",
+      "noah.patel"
+     ],
+     "verdict": "KEEP",
+     "reason": "Equals the account owner on 274/274.",
+     "use": "Consistency check only."
+    },
+    {
+     "name": "title",
+     "api_name": "title",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 8,
+     "summary": "Follow up on evaluation feedback (40), Resolve open support ticket (39), Confirm go-live date (36), Renewal conversation prep (35), Share implementation plan (34), Check-in on security review (33), Book technical deep-dive (30), Send pricing proposal (27)",
+     "samples": [
+      "Confirm go-live date",
+      "Check-in on security review"
+     ],
+     "verdict": "KEEP",
+     "reason": "8 templates (renewal prep, support ticket, security review...).",
+     "use": "Context: what is open."
+    },
+    {
+     "name": "description",
+     "api_name": "description",
+     "type": "TEXT",
+     "null_pct": 100.0,
+     "distinct": 0,
+     "summary": "all NULL",
+     "samples": [],
+     "verdict": "DROP",
+     "reason": "100% NULL.",
+     "use": "None."
+    },
+    {
+     "name": "due_date",
+     "api_name": "dueDate",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 21,
+     "summary": "2025-02-22 .. 2025-03-14; 21 distinct",
+     "samples": [
+      "2025-03-04",
+      "2025-03-07"
+     ],
+     "verdict": "KEEP",
+     "reason": "2025-02-22..2025-03-14; none in the future; 152 of 161 open tasks overdue, 9 due today.",
+     "use": "Overdue count (weak, flags 98 accounts)."
+    },
+    {
+     "name": "completed",
+     "api_name": "completed",
+     "type": "INTEGER",
+     "null_pct": 0.0,
+     "distinct": 2,
+     "summary": "0 (161), 1 (113)",
+     "samples": [
+      "0",
+      "1"
+     ],
+     "verdict": "KEEP",
+     "reason": "113 done / 161 open (API maps 1 -> true).",
+     "use": "Open-task filter."
+    },
+    {
+     "name": "created_at",
+     "api_name": "createdAt",
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 36,
+     "summary": "2025-02-02T08:00:00.000Z .. 2025-03-09T08:00:00.000Z; 36 distinct",
+     "samples": [
+      "2025-02-26T08:00:00.000Z",
+      "2025-02-11T08:00:00.000Z"
+     ],
+     "verdict": "DERIVE-ONLY",
+     "reason": "2025-02-02..03-09; 32 tasks are due before they were created.",
+     "use": "Task age only."
+    }
+   ]
+  },
+  {
+   "source": "analytics",
+   "table": "customers",
+   "rows": 207,
+   "verdict": "CLEAN-THEN-KEEP",
+   "reason": "207 tenants: 199 map to CRM accounts, 8 (cust_200-207) do not. The join bridge; needs normalising.",
+   "columns": [
+    {
+     "name": "id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 207,
+     "summary": "cust_001 .. cust_207; 207 distinct",
+     "samples": [
+      "cust_001",
+      "cust_002"
+     ],
+     "verdict": "KEEP",
+     "reason": "Primary key; FK of every analytics table.",
+     "use": "Join target (cust_ -> acc_)."
+    },
+    {
+     "name": "customer_name",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 202,
+     "summary": "acmepathology-prod .. windsorpartners-prod; 202 distinct",
+     "samples": [
+      "hearthpediatrics-prod",
+      "trinityspecialty-trial"
+     ],
+     "verdict": "CLEAN-THEN-KEEP",
+     "reason": "Strip env suffixes (-prod, prod, -cloud, -trial, -us, -eu, -sandbox, -holdings, -health-group); 5 names occur twice.",
+     "use": "Join key #3 (name)."
+    },
+    {
+     "name": "billing_email",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 202,
+     "summary": "accounts@brightregional. .. us@crestlinechild.exampl; 202 distinct",
+     "samples": [
+      "billing@hearthpediatrics.example",
+      "ops@trinityspecialty.example"
+     ],
+     "verdict": "CLEAN-THEN-KEEP",
+     "reason": "100% populated, always @<stem>.example; local part is a role mailbox.",
+     "use": "Join key #2 (billing domain) - used for 24 accounts."
+    },
+    {
+     "name": "domain",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 15.0,
+     "distinct": 169,
+     "summary": "acmepathology .. windsorfamily; 169 distinct",
+     "samples": [
+      "hearthpediatrics",
+      "trinityspecialty"
+     ],
+     "verdict": "CLEAN-THEN-KEEP",
+     "reason": "31 null (15%); 170 bare stems without TLD, 6 '<stem>customers.example'.",
+     "use": "Join key #1 (domain) - used for 140 accounts."
+    },
+    {
+     "name": "external_id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 207,
+     "summary": "synthetic_customer_10376 .. synthetic_customer_99917; 207 distinct",
+     "samples": [
+      "synthetic_customer_35656",
+      "synthetic_customer_70023"
+     ],
+     "verdict": "DROP",
+     "reason": "Unique 'synthetic_customer_N', no counterpart in the CRM.",
+     "use": "None."
+    },
+    {
+     "name": "owner_email",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 203,
+     "summary": "dev@aspenmedical.example .. us@crestlinechild.exampl; 203 distinct",
+     "samples": [
+      "platform@hearthpediatrics.example",
+      "trial@trinityspecialty.example"
+     ],
+     "verdict": "DROP",
+     "reason": "Role mailbox (owner@ on 186/207), not a person; nothing to compare in the CRM.",
+     "use": "None."
+    },
+    {
+     "name": "region",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 10.1,
+     "distinct": 3,
+     "summary": "apac (66), emea (65), amer (55)",
+     "samples": [
+      "amer",
+      "emea"
+     ],
+     "verdict": "KEEP",
+     "reason": "amer/emea/apac; NULL for cust_001-021. CRM has no region, so it cannot disambiguate.",
+     "use": "Context; regional split for 1:N accounts."
+    },
+    {
+     "name": "environment_type",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 2,
+     "summary": "PRODUCTION (206), SANDBOX (1)",
+     "samples": [
+      "PRODUCTION",
+      "SANDBOX"
+     ],
+     "verdict": "DROP",
+     "reason": "206 PRODUCTION / 1 SANDBOX; trial tenants cust_002 and cust_008 are labelled PRODUCTION. Project label + name is better.",
+     "use": "None."
+    },
+    {
+     "name": "created_at",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 180,
+     "summary": "2023-04-16T08:00:00.000Z .. 2025-01-13T08:00:00.000Z; 180 distinct",
+     "samples": [
+      "2025-01-04T08:00:00.000Z",
+      "2024-07-18T08:00:00.000Z"
+     ],
+     "verdict": "DERIVE-ONLY",
+     "reason": "For all 7 tenants created inside the usage window, first usage = created_at exactly, so it is a reliable tenant start date.",
+     "use": "Signal: tenant started recently (onboarding)."
+    },
+    {
+     "name": "archived_at",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 100.0,
+     "distinct": 0,
+     "summary": "all NULL",
+     "samples": [],
+     "verdict": "DROP",
+     "reason": "100% NULL.",
+     "use": "None."
+    }
+   ]
+  },
+  {
+   "source": "analytics",
+   "table": "projects",
+   "rows": 415,
+   "verdict": "CLEAN-THEN-KEEP",
+   "reason": "415 projects, 1-3 per customer. The name carries the real environment; created_at and last_active_at are unusable.",
+   "columns": [
+    {
+     "name": "id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 415,
+     "summary": "proj_001 .. proj_415; 415 distinct",
+     "samples": [
+      "proj_001",
+      "proj_002"
+     ],
+     "verdict": "KEEP",
+     "reason": "Primary key.",
+     "use": "Join usage to project class."
+    },
+    {
+     "name": "customer_id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 207,
+     "summary": "cust_001 .. cust_207; 207 distinct",
+     "samples": [
+      "cust_001",
+      "cust_002"
+     ],
+     "verdict": "KEEP",
+     "reason": "FK; always equals the customer on the project's usage events.",
+     "use": "Grouping."
+    },
+    {
+     "name": "name",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 414,
+     "summary": "acmepathology-qa .. windsorpartners-sandbox; 414 distinct",
+     "samples": [
+      "hearthpediatrics-prod",
+      "hearthpediatrics-clinical"
+     ],
+     "verdict": "CLEAN-THEN-KEEP",
+     "reason": "Suffix gives the environment: staging/qa/internal/sandbox/test/trial/eval (+digits) = non-prod (202 of 415).",
+     "use": "Project classifier -> production-only usage."
+    },
+    {
+     "name": "environment_type",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 2,
+     "summary": "PRODUCTION (411), SANDBOX (4)",
+     "samples": [
+      "PRODUCTION",
+      "SANDBOX"
+     ],
+     "verdict": "CLEAN-THEN-KEEP",
+     "reason": "SANDBOX label is right for the 4 SANDBOX projects, but 198 non-prod-named projects are labelled PRODUCTION (49.8% of PRODUCTION request volume).",
+     "use": "Combine with name class; SANDBOX = pre-customer trial."
+    },
+    {
+     "name": "created_at",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 265,
+     "summary": "2023-04-28T08:00:00.000Z .. 2025-03-08T08:00:00.000Z; 265 distinct",
+     "samples": [
+      "2025-01-14T08:00:00.000Z",
+      "2025-03-08T08:00:00.000Z"
+     ],
+     "verdict": "DROP",
+     "reason": "Usage predates created_at on 121/121 projects created inside the window (e.g. ironwoodhealth-new 'created' 2025-02-27, used since 2024-12-15).",
+     "use": "None (use first usage date instead)."
+    },
+    {
+     "name": "last_active_at",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 1,
+     "summary": "2025-03-14T08:00:00.000Z (415)",
+     "samples": [
+      "2025-03-14T08:00:00.000Z"
+     ],
+     "verdict": "DROP",
+     "reason": "Constant 2025-03-14T08:00Z on all 415 rows.",
+     "use": "None."
+    }
+   ]
+  },
+  {
+   "source": "analytics",
+   "table": "usage_events",
+   "rows": 2181098,
+   "verdict": "KEEP",
+   "reason": "2,181,098 events, 2024-12-15..2025-03-14, every tenant active through the last day. Use only via pre-aggregates (customer x project x day x event_type x is_nfr).",
+   "columns": [
+    {
+     "name": "id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 2181098,
+     "summary": "ue_0000001 .. ue_2181098 (unique)",
+     "samples": [
+      "ue_0000001",
+      "ue_0000002"
+     ],
+     "verdict": "DROP",
+     "reason": "Row id ue_0000001..ue_2181098.",
+     "use": "None."
+    },
+    {
+     "name": "customer_id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 207,
+     "summary": "cust_001 .. cust_207",
+     "samples": [
+      "cust_001",
+      "cust_002"
+     ],
+     "verdict": "KEEP",
+     "reason": "207 customers.",
+     "use": "Grouping/join."
+    },
+    {
+     "name": "project_id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 415,
+     "summary": "proj_001 .. proj_415",
+     "samples": [
+      "proj_001",
+      "proj_003"
+     ],
+     "verdict": "KEEP",
+     "reason": "415 projects; customer always matches the project's customer.",
+     "use": "Project class (prod vs non-prod)."
+    },
+    {
+     "name": "event_type",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 3,
+     "summary": "request (1,329,689), tokens (676,174), transcribe (175,235)",
+     "samples": [
+      "request",
+      "tokens"
+     ],
+     "verdict": "KEEP",
+     "reason": "request 1.33M rows, tokens 676k, transcribe 175k.",
+     "use": "Separate metrics."
+    },
+    {
+     "name": "event_date",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 90,
+     "summary": "2024-12-15 .. 2025-03-14 (90 days)",
+     "samples": [
+      "2025-01-04",
+      "2025-03-14"
+     ],
+     "verdict": "KEEP",
+     "reason": "90 days; weekday volume about 2.5x weekend, so compare 7-day-aligned windows.",
+     "use": "Trend windows."
+    },
+    {
+     "name": "quantity",
+     "api_name": null,
+     "type": "REAL",
+     "null_pct": 0.0,
+     "distinct": null,
+     "summary": "request = 1.0 (1 distinct); tokens 155.54..44,595.72 (>200k distinct); transcribe 0.41..34.97 (3,435 distinct)",
+     "samples": [
+      "1.0",
+      "7317.66"
+     ],
+     "verdict": "KEEP",
+     "reason": "request always 1.0; tokens 156-44,596 (mean 11,384); transcribe 0.41-34.97 (mean 14.0, unit not documented).",
+     "use": "Volume metrics."
+    },
+    {
+     "name": "environment_type",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 2,
+     "summary": "PRODUCTION (2,162,847), SANDBOX (18,251)",
+     "samples": [
+      "PRODUCTION",
+      "SANDBOX"
+     ],
+     "verdict": "DROP",
+     "reason": "Always equals the project's environment_type (denormalised copy) - same unreliability.",
+     "use": "None (use project class)."
+    },
+    {
+     "name": "is_nfr",
+     "api_name": null,
+     "type": "INTEGER",
+     "null_pct": 0.0,
+     "distinct": 2,
+     "summary": "0 (2,137,323), 1 (43,775)",
+     "samples": [
+      "0",
+      "1"
+     ],
+     "verdict": "KEEP",
+     "reason": "2.01% of rows (0-3.3% per customer), independent of all other columns.",
+     "use": "Filter: exclude is_nfr=1."
+    },
+    {
+     "name": "model_name",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 6,
+     "summary": "corti-s1 30.7%, corti-s1-beta 30.6%, corti-transcribe-v2 23.0%, corti-s1-large 10.3%, corti-clinical-note-v3 2.7%, corti-whisper-large 2.7%",
+     "samples": [
+      "corti-s1",
+      "corti-s1-beta"
+     ],
+     "verdict": "DROP",
+     "reason": "6 values drawn from a fixed per-event-type mix; every customer uses all 6; no customer/time signal.",
+     "use": "None."
+    },
+    {
+     "name": "route",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 7,
+     "summary": "/v1/chat/completions 32.9%, /tools/coding/ 22.5%, /interactions/:id/transcripts/ 14.9%, +4 more",
+     "samples": [
+      "/v1/chat/completions",
+      "/stream/facts/"
+     ],
+     "verdict": "DROP",
+     "reason": "7 values, per-event-type mix; every customer uses all 7; no signal.",
+     "use": "None."
+    },
+    {
+     "name": "agent_used",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 15.0,
+     "distinct": 5,
+     "summary": "encounter-copilot 23.0%, admin-assistant 22.9%, coding-agent 19.5%, billing-copilot 19.5%, '' 15.0%",
+     "samples": [
+      "encounter-copilot",
+      "coding-agent"
+     ],
+     "verdict": "DROP",
+     "reason": "4 agents + 15% empty, per-event-type mix; every customer uses all; no signal.",
+     "use": "None."
+    },
+    {
+     "name": "language_used",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 40.1,
+     "distinct": 8,
+     "summary": "'' 40.1%, en 10.1%, es/nl/fr/da/de/sv 8.3% each",
+     "samples": [
+      "de",
+      "fr"
+     ],
+     "verdict": "DROP",
+     "reason": "7 languages + 40% empty (always empty on tokens); every customer uses all; no signal.",
+     "use": "None."
+    },
+    {
+     "name": "source",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 4,
+     "summary": "copilot-api-v2 29.7%, web-app 26.4%, sdk 22.0%, api-gateway 21.9%",
+     "samples": [
+      "api-gateway",
+      "copilot-api-v2"
+     ],
+     "verdict": "DROP",
+     "reason": "4 values, per-event-type mix; every customer uses all 4; no signal.",
+     "use": "None."
+    }
+   ]
+  },
+  {
+   "source": "analytics",
+   "table": "api_keys",
+   "rows": 789,
+   "verdict": "DROP",
+   "reason": "789 keys. Dates are inconsistent and nothing separates accounts: new keys in the last 30 days on 77/184 accounts and inactive keys on 85, at similar rates for growing, flat and declining accounts.",
+   "columns": [
+    {
+     "name": "id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 789,
+     "summary": "key_001 .. key_789; 789 distinct",
+     "samples": [
+      "key_001",
+      "key_002"
+     ],
+     "verdict": "DROP",
+     "reason": "Row id.",
+     "use": "None."
+    },
+    {
+     "name": "customer_id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 207,
+     "summary": "cust_001 .. cust_207; 207 distinct",
+     "samples": [
+      "cust_001",
+      "cust_002"
+     ],
+     "verdict": "DROP",
+     "reason": "FK (all 207 customers have keys).",
+     "use": "None."
+    },
+    {
+     "name": "project_id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 100.0,
+     "distinct": 0,
+     "summary": "all NULL",
+     "samples": [],
+     "verdict": "DROP",
+     "reason": "100% NULL.",
+     "use": "None."
+    },
+    {
+     "name": "label",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 14,
+     "summary": "credential-1 .. credential-9; 14 distinct",
+     "samples": [
+      "credential-1",
+      "credential-2"
+     ],
+     "verdict": "DROP",
+     "reason": "Sequence credential-1..14 per customer.",
+     "use": "None."
+    },
+    {
+     "name": "environment_type",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 2,
+     "summary": "PRODUCTION (785), SANDBOX (4)",
+     "samples": [
+      "PRODUCTION",
+      "SANDBOX"
+     ],
+     "verdict": "DROP",
+     "reason": "785 PRODUCTION / 4 SANDBOX, mirrors the customer.",
+     "use": "None."
+    },
+    {
+     "name": "created_at",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 194,
+     "summary": "2024-08-26T08:00:00.000Z .. 2025-03-09T08:00:00.000Z; 194 distinct",
+     "samples": [
+      "2024-10-30T08:00:00.000Z",
+      "2024-12-03T08:00:00.000Z"
+     ],
+     "verdict": "DROP",
+     "reason": "96 keys (12%) were last used before they were created.",
+     "use": "None."
+    },
+    {
+     "name": "last_used_at",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 104,
+     "summary": "2024-08-27T08:00:00.000Z .. 2025-03-14T08:00:00.000Z; 104 distinct",
+     "samples": [
+      "2025-03-07T08:00:00.000Z",
+      "2025-03-05T08:00:00.000Z"
+     ],
+     "verdict": "DROP",
+     "reason": "Customer max(last_used_at) is before 2025-03-14 for 161/207 tenants despite daily usage.",
+     "use": "None."
+    },
+    {
+     "name": "active",
+     "api_name": null,
+     "type": "INTEGER",
+     "null_pct": 0.0,
+     "distinct": 2,
+     "summary": "1 (652), 0 (137)",
+     "samples": [
+      "1",
+      "0"
+     ],
+     "verdict": "DROP",
+     "reason": "Just a recency flag: all 137 inactive keys were last used before 2025-02-12 and all 652 active keys after it. No deactivation date.",
+     "use": "None."
+    }
+   ]
+  },
+  {
+   "source": "analytics",
+   "table": "contracts",
+   "rows": 129,
+   "verdict": "KEEP",
+   "reason": "129 contracts, one per customer, all active on 2025-03-14. Raw facts are fine; balance does not reconcile with usage.",
+   "columns": [
+    {
+     "name": "id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 129,
+     "summary": "contract_001 .. contract_129; 129 distinct",
+     "samples": [
+      "contract_001",
+      "contract_002"
+     ],
+     "verdict": "KEEP",
+     "reason": "Primary key.",
+     "use": "Reference."
+    },
+    {
+     "name": "customer_id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 129,
+     "summary": "cust_001 .. cust_207; 129 distinct",
+     "samples": [
+      "cust_001",
+      "cust_003"
+     ],
+     "verdict": "KEEP",
+     "reason": "129 distinct customers (incl. all 8 unmatched ones).",
+     "use": "Join to account."
+    },
+    {
+     "name": "name",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 10,
+     "summary": "commit credit product .. prepaid product; 10 distinct",
+     "samples": [
+      "postpaid credit product",
+      "commit postpaid product"
+     ],
+     "verdict": "DROP",
+     "reason": "Junk: '<random word> <type> product'; the second word always equals type.",
+     "use": "None."
+    },
+    {
+     "name": "type",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 3,
+     "summary": "credit (50), prepaid (45), postpaid (34)",
+     "samples": [
+      "credit",
+      "postpaid"
+     ],
+     "verdict": "KEEP",
+     "reason": "credit 50 / prepaid 45 / postpaid 34.",
+     "use": "Which low-balance threshold applies."
+    },
+    {
+     "name": "amount",
+     "api_name": null,
+     "type": "REAL",
+     "null_pct": 0.0,
+     "distinct": 129,
+     "summary": "9852.0 .. 243830.0; 129 distinct",
+     "samples": [
+      "22370.0",
+      "148626.0"
+     ],
+     "verdict": "KEEP",
+     "reason": "9,852-243,830 (total 14.9M).",
+     "use": "Contract size; balance %."
+    },
+    {
+     "name": "balance",
+     "api_name": null,
+     "type": "REAL",
+     "null_pct": 0.0,
+     "distinct": 129,
+     "summary": "4600.0 .. 222822.0; 129 distinct",
+     "samples": [
+      "10371.0",
+      "57587.0"
+     ],
+     "verdict": "KEEP",
+     "reason": "Balance 11%-98% of amount (median 52%). Implied burn does not track usage (r = -0.04) or elapsed term (r = 0.08).",
+     "use": "Signal: balance %, runway (low confidence)."
+    },
+    {
+     "name": "starting_at",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 106,
+     "summary": "2024-05-22T08:00:00.000Z .. 2025-02-09T08:00:00.000Z; 106 distinct",
+     "samples": [
+      "2024-05-31T08:00:00.000Z",
+      "2024-09-21T08:00:00.000Z"
+     ],
+     "verdict": "KEEP",
+     "reason": "2024-05-22..2025-02-09.",
+     "use": "Elapsed days for burn rate."
+    },
+    {
+     "name": "ending_before",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 105,
+     "summary": "2025-04-14T08:00:00.000Z .. 2026-01-08T08:00:00.000Z; 105 distinct",
+     "samples": [
+      "2025-06-03T08:00:00.000Z",
+      "2025-07-28T08:00:00.000Z"
+     ],
+     "verdict": "KEEP",
+     "reason": "2025-04-14..2026-01-08 (31-300 days out; 21 of 129 within 90 days, 12 within 60).",
+     "use": "Signal: days to contract end."
+    }
+   ]
+  },
+  {
+   "source": "analytics",
+   "table": "alerts",
+   "rows": 3,
+   "verdict": "DERIVE-ONLY",
+   "reason": "3 alert definitions. Useful only for their thresholds, to recompute alerts ourselves.",
+   "columns": [
+    {
+     "name": "id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 3,
+     "summary": "alert_low_balance (1), alert_credit_low (1), alert_usage_spike (1)",
+     "samples": [
+      "alert_low_balance",
+      "alert_credit_low"
+     ],
+     "verdict": "DERIVE-ONLY",
+     "reason": "alert_low_balance / alert_credit_low / alert_usage_spike.",
+     "use": "Reference."
+    },
+    {
+     "name": "name",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 3,
+     "summary": "Low committed balance (1), Low credit balance (1), Usage spike (1)",
+     "samples": [
+      "Low committed balance",
+      "Low credit balance"
+     ],
+     "verdict": "DERIVE-ONLY",
+     "reason": "Human label.",
+     "use": "Display when explaining a recomputed alert."
+    },
+    {
+     "name": "alert_type",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 3,
+     "summary": "low_remaining_commit_balance_reached (1), low_credit_balance_reached (1), usage_spike_detected (1)",
+     "samples": [
+      "low_remaining_commit_balance_reached",
+      "low_credit_balance_reached"
+     ],
+     "verdict": "DERIVE-ONLY",
+     "reason": "low_remaining_commit_balance_reached / low_credit_balance_reached / usage_spike_detected.",
+     "use": "Map to contract type."
+    },
+    {
+     "name": "threshold",
+     "api_name": null,
+     "type": "REAL",
+     "null_pct": 0.0,
+     "distinct": 3,
+     "summary": "0.2 (1), 0.15 (1), 2.0 (1)",
+     "samples": [
+      "0.2",
+      "0.15"
+     ],
+     "verdict": "DERIVE-ONLY",
+     "reason": "0.20 commit, 0.15 credit, 2.0 spike.",
+     "use": "Recompute low-balance flag: <=0.15 credit/postpaid, <=0.20 prepaid."
+    }
+   ]
+  },
+  {
+   "source": "analytics",
+   "table": "customer_alert_history",
+   "rows": 35,
+   "verdict": "DROP",
+   "reason": "35 rows, all 'triggered'. Only 1 of 35 fired at or below its threshold; 23 fired with >50% balance left; 9 customers at/below threshold (incl. the 3 lowest) never fired; the spike alert never fired.",
+   "columns": [
+    {
+     "name": "id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 35,
+     "summary": "hist_001 .. hist_035; 35 distinct",
+     "samples": [
+      "hist_001",
+      "hist_002"
+     ],
+     "verdict": "DROP",
+     "reason": "Row id.",
+     "use": "None."
+    },
+    {
+     "name": "customer_id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 35,
+     "summary": "cust_003 .. cust_207; 35 distinct",
+     "samples": [
+      "cust_003",
+      "cust_006"
+     ],
+     "verdict": "DROP",
+     "reason": "35 customers.",
+     "use": "None."
+    },
+    {
+     "name": "alert_id",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 2,
+     "summary": "alert_credit_low (24), alert_low_balance (11)",
+     "samples": [
+      "alert_credit_low",
+      "alert_low_balance"
+     ],
+     "verdict": "DROP",
+     "reason": "credit_low 24 (14 credit + 10 postpaid contracts), low_balance 11 (prepaid).",
+     "use": "None."
+    },
+    {
+     "name": "alert_status",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 1,
+     "summary": "triggered (35)",
+     "samples": [
+      "triggered"
+     ],
+     "verdict": "DROP",
+     "reason": "Constant 'triggered'.",
+     "use": "None."
+    },
+    {
+     "name": "created_at",
+     "api_name": null,
+     "type": "TEXT",
+     "null_pct": 0.0,
+     "distinct": 17,
+     "summary": "2025-02-22T08:00:00.000Z .. 2025-03-13T08:00:00.000Z; 17 distinct",
+     "samples": [
+      "2025-03-06T08:00:00.000Z",
+      "2025-03-02T08:00:00.000Z"
+     ],
+     "verdict": "DROP",
+     "reason": "2025-02-22..2025-03-13.",
+     "use": "None."
+    }
+   ]
+  }
+ ],
+ "signals": [
+  {
+   "name": "prod_request_trend_28d",
+   "definition": "Requests in the last 28 days (2025-02-15..03-14) vs the prior 28 (2025-01-18..02-14) on production-named projects, NFR excluded. growing >= +15%, declining <= -15%, called only if prior-28 >= 100 requests.",
+   "logic": "WITH proj AS (SELECT id, CASE WHEN name LIKE '%-staging%' OR name LIKE '%-qa%' OR name LIKE '%-internal%' OR name LIKE '%-sandbox%' OR name LIKE '%-test%' OR name LIKE '%-trial%' OR name LIKE '%-eval%' THEN 'nonprod' ELSE 'prod' END cls FROM projects) SELECT u.customer_id, SUM(CASE WHEN u.event_date BETWEEN '2025-02-15' AND '2025-03-14' THEN u.quantity ELSE 0 END) l28, SUM(CASE WHEN u.event_date BETWEEN '2025-01-18' AND '2025-02-14' THEN u.quantity ELSE 0 END) p28 FROM usage_events u JOIN proj p ON p.id=u.project_id WHERE u.event_type='request' AND u.is_nfr=0 AND p.cls='prod' GROUP BY 1;  -- change = l28/p28-1; sum over the account's matched customers",
+   "accounts_flagged": {
+    "growing": 31,
+    "declining": 20,
+    "flat": 78,
+    "low_volume": 5,
+    "no_prod_named_usage": 50,
+    "of_resolved": 184
+   },
+   "differentiates": "Yes. Customer-level changes are trimodal (about -30%, 0%, +40%) with almost nothing between -20..-10% and +10..+30%, so the 15% cut is robust. Calendar weeks (wk8-11 vs wk4-7) give the same class for 143/146 customers.",
+   "notes": "Book-wide baseline is +3.9%. Rolling 7-day windows anchored on the reference date avoid the 6-day partial week and the weekday effect. Trends are assigned per project (within-customer project trends are independent), so 1:N accounts can hide opposite stories."
+  },
+  {
+   "name": "name_classifier_impact",
+   "definition": "How much excluding non-prod-named projects changes each account's numbers versus trusting environment_type.",
+   "logic": "Same query with p.cls='prod' replaced by u.environment_type='PRODUCTION' (trusting the label). No prod-named project is SANDBOX-labelled, so the name filter alone defines production.",
+   "accounts_flagged": {
+    "trend_class_changes": 66,
+    "become_no_prod_usage": 44,
+    "share_nonprod_0pct": 58,
+    "share_nonprod_100pct": 47,
+    "share_nonprod_mixed": 76,
+    "trend_shift_gt_10pp": 34
+   },
+   "differentiates": "Material: class changes for 66 of 184 resolvable accounts (44 lose all production usage); median trend shift 0.3 pp but p90 24 pp.",
+   "notes": "Per-project volumes and trend mixes are statistically the same for prod- and non-prod-named projects, so this is a business rule, not something the data proves. Show both numbers when they differ."
+  },
+  {
+   "name": "tokens_transcribe_agreement",
+   "definition": "Do tokens and transcribe (same windows, same project filter) move in the same class as requests?",
+   "logic": "Same query with event_type IN ('tokens','transcribe'); classify with the same +/-15% cut; agreement = same class.",
+   "accounts_flagged": {
+    "all_three_agree": 94,
+    "tokens_only_agree": 23,
+    "transcribe_only_agree": 6,
+    "neither_agrees": 6,
+    "of_trend_called": 129
+   },
+   "differentiates": "As a confidence modifier, not a flag: tokens agree on 117/129 (r = 0.88), transcribe on 100/129 (r = 0.69, lower volume).",
+   "notes": "When all three agree, state the trend with high confidence; the 6 'neither agrees' accounts are mostly low-volume or near the 15% cut."
+  },
+  {
+   "name": "contract_runway",
+   "definition": "balance_pct = balance/amount; linear burn = (amount-balance)/days since starting_at; projected exhaustion = today + balance/burn; compare with ending_before. Low balance = <=15% (credit, postpaid) or <=20% (prepaid), the thresholds from alerts.",
+   "logic": "SELECT customer_id, type, balance/amount pct, (amount-balance)/(julianday('2025-03-14')-julianday(substr(starting_at,1,10))) burn, balance/((amount-balance)/(julianday('2025-03-14')-julianday(substr(starting_at,1,10)))) days_left_at_burn, julianday(substr(ending_before,1,10))-julianday('2025-03-14') days_to_end FROM contracts;",
+   "accounts_flagged": {
+    "accounts_with_contract": 114,
+    "low_balance": 10,
+    "balance_runs_out_within_60d": 29,
+    "exhausts_before_end": 65
+   },
+   "differentiates": "Low balance yes (10 accounts). 'Exhausts before end' flags 65 of 114 contracts (57%), too broad on its own; the 60-day version (29) is usable.",
+   "notes": "Balances do not reconcile with usage: implied burn/day vs requests/day r = -0.04, consumed share vs elapsed term r = 0.08. Present balance % as a stated fact and the runway as an assumption. acc_007 IronwoodHealth: prepaid 12.5% left, runs out about 2025-04-08 vs end 2025-06-12, usage +47%."
+  },
+  {
+   "name": "days_to_contract_end_or_renewal",
+   "definition": "ending_before - today (analytics) and, for won opps, closeDate - today (CRM renewal date).",
+   "logic": "julianday(substr(ending_before,1,10)) - julianday('2025-03-14'); API: opportunities[status='won'].closeDate - 2025-03-14.",
+   "accounts_flagged": {
+    "contract_ends_within_60d": 10,
+    "contract_ends_within_90d": 17,
+    "won_opp_close_within_60d": 11
+   },
+   "differentiates": "Yes (5-10%).",
+   "notes": "The two dates disagree (median 77 days apart; equal on 1 of 80 pairs). No contract ends within 30 days. Show both and say which source."
+  },
+  {
+   "name": "new_projects_30d",
+   "definition": "Projects whose created_at (or first usage) is within 30 days of today.",
+   "logic": "SELECT customer_id, name FROM projects WHERE created_at >= '2025-02-12'  vs  first usage: SELECT project_id, MIN(event_date) FROM usage_events GROUP BY 1 HAVING MIN(event_date) >= '2025-02-12';",
+   "accounts_flagged": {
+    "by_created_at": 25,
+    "by_first_usage": 1
+   },
+   "differentiates": "Doesn't hold up as defined: created_at flags 25 accounts, but usage predates created_at on every project created in the window. By first usage, only acc_005's '-eval' project is new (first used 2025-03-08).",
+   "notes": "Named projects like -new, -launch, -api, -coding, -clinical look like intended expansion stories; if used, call them 'project metadata says new' with low confidence."
+  },
+  {
+   "name": "tenant_started_recently",
+   "definition": "Customer created_at (= first usage) after the window start.",
+   "logic": "SELECT id, created_at FROM customers WHERE created_at > '2024-12-15T08:00:00.000Z';  -- plus dormant tenants whose first usage is recent",
+   "accounts_flagged": {
+    "usage_started_recently": 7
+   },
+   "differentiates": "Yes, specific: acc_001, acc_036, acc_109, acc_151, acc_182, acc_188 onboarding, plus acc_005 (dormant closed_lost tenant woke up 2025-03-08). cust_206 has no CRM account.",
+   "notes": "The only >=2x jumps over the trailing 4-week mean in the whole dataset are onboarding ramps (cust_001, cust_035, cust_108); the usage_spike alert never fired."
+  },
+  {
+   "name": "api_key_changes",
+   "definition": "Keys created in the last 30 days; inactive keys.",
+   "logic": "SELECT customer_id, SUM(created_at >= '2025-02-12'), SUM(active=0) FROM api_keys GROUP BY 1;",
+   "accounts_flagged": {
+    "new_key_30d": 77,
+    "has_inactive_key": 85,
+    "of_resolved": 184
+   },
+   "differentiates": "No. Same rate on growing (52%), flat (45%) and declining (60%) accounts. Dropped.",
+   "notes": "12% of keys were last used before they were created; 'active' only encodes last use within 30 days; no deactivation date."
+  },
+  {
+   "name": "pre_customer_sandbox",
+   "definition": "Accounts in prospect/evaluation/mvp whose tenant has SANDBOX-labelled usage (or only non-prod-named usage).",
+   "logic": "SELECT customer_id, SUM(quantity) FROM usage_events WHERE environment_type='SANDBOX' AND event_type='request' AND is_nfr=0 GROUP BY 1;  + CRM stage IN (prospect, evaluation, mvp)",
+   "accounts_flagged": {
+    "sandbox_label": 3,
+    "nonprod_named_only": 27
+   },
+   "differentiates": "SANDBOX version is very specific: acc_002 ($742k eval, ~6 req/week trial), acc_006 ($87k eval, sandbox+test growing +38-46%), acc_008 ($1.02M mvp closing 2025-04-13, 2-5 req/week). The name-only version (27) is broad.",
+   "notes": "cust_006 and cust_008 also hold credit contracts with fired credit_low alerts, which contradicts 'pre-customer'."
+  },
+  {
+   "name": "noncustomer_usage",
+   "definition": "Prospect/closed_lost accounts with production-named usage, and the subset with growing usage.",
+   "logic": "stage IN ('prospect','closed_lost') AND prod l28 > 0 (any) / AND trend class = growing.",
+   "accounts_flagged": {
+    "prospect_with_prod_usage": 28,
+    "closed_lost_with_prod_usage": 20,
+    "noncustomer_growing_usage": 12,
+    "closed_lost_reactivated": 1
+   },
+   "differentiates": "'Any usage' does not: every matched prospect and closed_lost tenant uses the product daily. 'Growing' does (12: acc_003, 017, 037, 057, 085, 099, 118, 126 prospects; acc_033, 046, 106, 124 closed_lost).",
+   "notes": "Treat as 'CRM stage is probably stale', i.e. a hygiene or upsell conversation, not proof of a deal."
+  },
+  {
+   "name": "days_since_contact",
+   "definition": "today - account.lastContactAt.",
+   "logic": "API: 2025-03-14 - accounts[].lastContactAt (do not use contacts.lastContactedAt, a copy).",
+   "accounts_flagged": {
+    "no_contact_14d_active_stages": 54,
+    "of_active_stage": 138
+   },
+   "differentiates": "Moderately: customers 0-20 days, evaluation/mvp 0-30, prospects 0-69, closed_lost 45-298. >14 days flags 39% of active-stage accounts; use as a tiebreaker.",
+   "notes": "Only 1-3 activities per account, so recency is coarse."
+  },
+  {
+   "name": "meeting_outcome_and_notes",
+   "definition": "Latest meeting outcome and note text from activities.",
+   "logic": "API: GET /accounts/:id/activities -> type='meeting' (outcome), type='note' (text).",
+   "accounts_flagged": {
+    "positive_meeting": 3,
+    "negative_meeting": 1,
+    "accounts_with_note": 5
+   },
+   "differentiates": "Yes but tiny coverage: 8 accounts in total. Highest-precision qualitative evidence (acc_022 negative meeting + dissatisfaction note on -28% usage).",
+   "notes": "Meetings carry no attendee (contactIds always []). Notes older than the usage window (acc_003, acc_005) still explain context."
+  },
+  {
+   "name": "open_opportunity_value_and_close",
+   "definition": "Open opp value and days to its closeDate.",
+   "logic": "API: GET /accounts/:id/opportunities -> status='open' -> value, closeDate - 2025-03-14.",
+   "accounts_flagged": {
+    "open_opps": 68,
+    "closes_within_45d": 18,
+    "value_within_45d": 5188642,
+    "big_open_deal_low_engagement": 2
+   },
+   "differentiates": "Yes. 18 deals ($5.19M) close within 45 days; combined with engagement it isolates acc_002 and acc_008 (big deals, near-zero product use).",
+   "notes": "Don't use account.opportunityAmount for this (it also carries won renewals)."
+  },
+  {
+   "name": "stage_vs_reality",
+   "definition": "CRM stage contradicted by analytics: prospect/closed_lost with a contract, customer without contract or without production usage.",
+   "logic": "stage vs (contract exists) vs (prod-named l28 > 0).",
+   "accounts_flagged": {
+    "prospect_with_contract": 21,
+    "closed_lost_with_contract": 11,
+    "customer_without_contract": 28,
+    "customer_without_prod_usage": 19
+   },
+   "differentiates": "Weak on its own: contract presence is independent of stage (62% of prospects, 46% of closed_lost, 59% of customers have one), so these are mostly generator noise. Useful as hygiene notes or when combined with a usage trend.",
+   "notes": "Strongest specific cases: acc_003 and acc_017 (prospects with contracts, growing usage, notes saying 'no deal'/'low priority'), acc_005 (closed_lost with contract and reactivated usage)."
+  },
+  {
+   "name": "declining_near_renewal",
+   "definition": "Customer with declining production usage and a renewal (won-opp closeDate) or contract end within 75 days.",
+   "logic": "trend class = declining AND stage='customer' AND min(days_to_won_close, days_to_contract_end) <= 75.",
+   "accounts_flagged": {
+    "accounts": 5
+   },
+   "differentiates": "Yes: acc_009, acc_022, acc_023, acc_127, acc_187.",
+   "notes": "Highest-urgency retention list; acc_022 also has the only negative meeting."
+  },
+  {
+   "name": "regional_divergence",
+   "definition": "1:N accounts whose regional tenants trend in different directions.",
+   "logic": "For accounts with >1 matched customer, compare per-customer trend classes.",
+   "accounts_flagged": {
+    "accounts": 1
+   },
+   "differentiates": "Only acc_011 CrestlineChild (US +53%, EU -23%; the sum, +13%, looks flat).",
+   "notes": "Report per region, never just the sum."
+  },
+  {
+   "name": "overdue_tasks",
+   "definition": "Open tasks with dueDate < today.",
+   "logic": "API: tasks[completed=false && dueDate < '2025-03-14'].",
+   "accounts_flagged": {
+    "accounts": 98
+   },
+   "differentiates": "Weak: 49% of accounts; 152 of 161 open tasks are overdue and no task is due in the future.",
+   "notes": "Use for 'what's open' context, not ranking."
+  },
+  {
+   "name": "unmatched_tenants",
+   "definition": "Analytics customers with no CRM candidate.",
+   "logic": "Join output: customers with no account.",
+   "accounts_flagged": {
+    "customers": 8,
+    "contract_value": 964424
+   },
+   "differentiates": "n/a (outside the 200-account book).",
+   "notes": "cust_200-207 all have contracts ($964k) and daily usage, e.g. cust_203 graniteintegrated +27%. Worth one 'not in CRM' line."
+  },
+  {
+   "name": "last_week_vs_prior_3",
+   "definition": "Last 7 days vs mean of the 3 prior rolling weeks (sudden-change detector).",
+   "logic": "prod-named requests r0 vs mean(r1..r3).",
+   "accounts_flagged": {
+    "flat_accounts_with_abs_change_ge_20pct": 0
+   },
+   "differentiates": "No. It just restates the 28-day trend; no flat account moved >=20% last week. Dropped.",
+   "notes": ""
+  },
+  {
+   "name": "usage_dimension_mix",
+   "definition": "model_name / route / agent_used / language_used / source mix per customer, shift between first and last 4 full weeks, breadth.",
+   "logic": "Per customer chi-square vs the global mix within event_type; 2xK test wk0-3 vs wk8-11; distinct values per customer.",
+   "accounts_flagged": {
+    "p_lt_0_001_vs_global": "0-1 per dimension (chance)",
+    "shift_p_lt_0_05": "7-12 of 202 per dimension (null rate ~10)",
+    "breadth": "every customer uses every value"
+   },
+   "differentiates": "No. Dropped.",
+   "notes": "Mixes are fixed per event_type (e.g. language always empty on tokens) but independent of customer and time."
+  }
+ ],
+ "join": {
+  "method": "No shared key. Normalise CRM name (drop Group/LLC/Ltd/Inc/Healthcare and ' - North/West', keep [a-z0-9]) and domain (drop .example, keep [a-z0-9]); normalise analytics customer_name (drop -prod|prod|-cloud|-trial|-us|-eu|-sandbox|-holdings|-health-group), domain (drop .example and trailing 'customers') and billing-email domain. Candidate = any equal key. Confidence: domain (CRM domain = customer domain) > billing_domain (CRM domain = billing-email domain) > name_only > ambiguous (candidate graph has >1 account or >1 customer per component, except a 1-account -> N-regional-tenants star).",
+  "matched": {
+   "accounts_with_candidates": 200,
+   "resolved": 184,
+   "by_confidence": {
+    "domain": 140,
+    "name_only": 20,
+    "billing_domain": 24,
+    "ambiguous": 16
+   },
+   "domain_links_literal": 71,
+   "domain_links_needing_hyphen_removal": 64,
+   "domain_links_needing_customers_suffix_strip": 6,
+   "billing_links_literal": 11,
+   "billing_links_normalised": 13,
+   "one_to_many": {
+    "acc_011": [
+     "cust_011 (us)",
+     "cust_012 (eu)"
+    ]
+   }
+  },
+  "ambiguous_clusters": [
+   {
+    "cluster": "LakeviewMen",
+    "accounts": [
+     "acc_010",
+     "acc_047"
+    ],
+    "customers": [
+     "cust_010",
+     "cust_046"
+    ],
+    "legit_evidence": "none (same domain, same billing email)",
+    "id_order_hint": {
+     "acc_010": "cust_010",
+     "acc_047": "cust_046"
+    }
+   },
+   {
+    "cluster": "SageMedGroup",
+    "accounts": [
+     "acc_013",
+     "acc_014",
+     "acc_015",
+     "acc_062"
+    ],
+    "customers": [
+     "cust_014",
+     "cust_061"
+    ],
+    "legit_evidence": "semantic only: cust_014 'sagemedgroup-holdings' (finance@, entity-a/entity-b projects) fits the parent acc_013 'Master agreement' plus branches acc_014/015 ('Synced with parent account' / 'Part of master agreement')",
+    "id_order_hint": {
+     "acc_013": "cust_014",
+     "acc_014": "cust_014 (branch)",
+     "acc_015": "cust_014 (branch)",
+     "acc_062": "cust_061"
+    }
+   },
+   {
+    "cluster": "PrairieAmbulatory",
+    "accounts": [
+     "acc_020",
+     "acc_146"
+    ],
+    "customers": [
+     "cust_019",
+     "cust_145"
+    ],
+    "legit_evidence": "none (acc_146 has no domain; both customers share domain and billing)",
+    "id_order_hint": {
+     "acc_020": "cust_019",
+     "acc_146": "cust_145"
+    }
+   },
+   {
+    "cluster": "TrinityRehabilitation",
+    "accounts": [
+     "acc_028",
+     "acc_125"
+    ],
+    "customers": [
+     "cust_027",
+     "cust_124"
+    ],
+    "legit_evidence": "none (accounts share a domain)",
+    "id_order_hint": {
+     "acc_028": "cust_027",
+     "acc_125": "cust_124"
+    }
+   },
+   {
+    "cluster": "VeridianSleep",
+    "accounts": [
+     "acc_064",
+     "acc_137"
+    ],
+    "customers": [
+     "cust_063",
+     "cust_136"
+    ],
+    "legit_evidence": "none (no CRM domains; identical customer name/billing/owner/region)",
+    "id_order_hint": {
+     "acc_064": "cust_063",
+     "acc_137": "cust_136"
+    }
+   },
+   {
+    "cluster": "CrestlineSenior",
+    "accounts": [
+     "acc_069",
+     "acc_152"
+    ],
+    "customers": [
+     "cust_068",
+     "cust_151"
+    ],
+    "legit_evidence": "none (acc_152 has no domain)",
+    "id_order_hint": {
+     "acc_069": "cust_068",
+     "acc_152": "cust_151"
+    }
+   },
+   {
+    "cluster": "WindsorFamily",
+    "accounts": [
+     "acc_161",
+     "acc_185"
+    ],
+    "customers": [
+     "cust_160",
+     "cust_184"
+    ],
+    "legit_evidence": "none (windsorfamily vs windsor-family differ only by a hyphen, and 85 CRM domains are hyphenated while no analytics domain is)",
+    "id_order_hint": {
+     "acc_161": "cust_160",
+     "acc_185": "cust_184"
+    }
+   }
+  ],
+  "unmatched_customers": [
+   "cust_200",
+   "cust_201",
+   "cust_202",
+   "cust_203",
+   "cust_204",
+   "cust_205",
+   "cust_206",
+   "cust_207"
+  ],
+  "notes": [
+   "Disambiguators tested and rejected: created_at gap (random, -638..+769 days, 58% positive), region (no CRM counterpart), owner_email (role mailboxes), stage vs contract presence (independent), contract ending_before vs opp closeDate (median 77 days apart), opp value vs contract amount (r = 0.12).",
+   "Generator artefact (not a key): ids are ordinally aligned. acc_N = cust_N for N<=10, acc_011 = cust_011+012, acc_012/013 = cust_013/014, acc_014/015 have no tenant, acc_N = cust_(N-1) for N>=16. All 183 unambiguous matches agree with it (100% precision check). It also implies the pairing in id_order_hint. Use it only to validate, never as a production join rule.",
+   "Within clusters the candidates differ materially (e.g. VeridianSleep: one tenant flat with no contract, the other +34% with a prepaid contract), so a wrong guess would mislead. The preview leaves usage fields empty for the 16 ambiguous accounts and lists each candidate in candidates_summary."
+  ]
+ },
+ "corrections": [
+  "CrestlineChild (acc_011 -> cust_011 us + cust_012 eu) is not ambiguous: both tenants point only to acc_011, so it is a clean 1:2 map. But the regions diverge (US +53%, EU -23%) and the sum (+13%) looks flat, so report per region.",
+  "The 7 duplicate clusters cannot be separated with legitimate fields (created_at, region, owner_email, contracts, opp dates/amounts all tested). Only the generator's ordinal id pattern separates them, which is an artefact.",
+  "environment_type: 49.8% of PRODUCTION-labelled request volume (50.6% tokens, 49.8% transcribe) comes from non-prod-named projects - but the names are staging/qa/internal/sandbox(+2/3). The single '-test' project is SANDBOX-labelled, and 18 of 19 '-sandbox' projects are labelled PRODUCTION. Prod- and non-prod-named projects have the same volume and trend distributions, so the name rule is a business assumption the data cannot confirm.",
+  "Sandbox-only tenants cust_002/006/008 -> acc_002/006/008 holds. Nuance: only their projects (and cust_006's customer row) say SANDBOX; cust_006 and cust_008 also have credit contracts ($117.9k, $232.5k) and fired credit_low alerts.",
+  "Alert history: '~23 fired with >50% balance' is exactly 23/35. Stronger: only 1 of 35 (cust_040, 16.8% vs 0.20) fired at or below its threshold; 9 customers at/below threshold never fired; credit_low also fires on 10 postpaid contracts; usage_spike never fired.",
+  "Persona vs title: technical titles always map to 'technical'. Only the 11 non-technical titles get a random executive/clinical/operations persona.",
+  "Activities: 198 accounts have 1-3, but acc_014 and acc_015 have none. The 2 email subjects are fully determined by direction.",
+  "Tasks: 152/161 open tasks overdue holds; the other 9 are due today, and no task in the CRM is due after 2025-03-14.",
+  "Account opportunityAmount/closeDate mirror the opp (135/135, plus nextStep 135/135). They mirror won renewals too, so opportunityAmount is not 'open value' as the docs say.",
+  "Usage dimensions are not uniform: each follows a fixed per-event-type mix (e.g. language always empty on tokens; transcribe models only on transcribe). Within event type they are independent of customer and time, so DROP stands.",
+  "Constant/empty columns all confirmed. Additions: tasks.description 100% NULL, alert_status constant, and projects.created_at is contradicted by usage on every in-window project.",
+  "'Usage on closed_lost/prospect accounts' is universal (every matched tenant has daily usage), so on its own it is not a signal. Only the growing subset (12 accounts) or reactivation (acc_005) is."
+ ],
+ "caveats": [
+  "Reference date 2025-03-14 ('today'). Windows are rolling 7-day weeks anchored on it (L28 = 02-15..03-14, P28 = 01-18..02-14), which avoids the 6-day partial week and the 2.5x weekday/weekend effect.",
+  "NFR events (2%) excluded from all usage metrics.",
+  "Project environment = name-based rule (staging|qa|internal|sandbox|test|trial|eval + optional digits = non-prod). Shown alongside the label-based number where they differ.",
+  "Contract balance does not reconcile with usage; runway/exhaustion uses linear burn since starting_at and is an assumption.",
+  "Low-balance thresholds: 0.15 for credit and postpaid, 0.20 for prepaid, inferred from which alert the history attaches to each contract type.",
+  "CRM was profiled from SQLite directly. The tool must use the HTTP API: missing values come back as null (not absent); meeting contactIds is always []; type-specific fields only appear on their activity type; opportunities need one call per account.",
+  "All timestamps in both sources are 08:00:00.000Z, so day granularity only.",
+  "The 16 ambiguous accounts have no usage fields in the preview, by design. The 8 unmatched tenants are outside the preview.",
+  "Flags are independent booleans, not a score; counts are of the 200 accounts (184 resolvable).",
+  "Synthetic data: tenants cust_001-021 (region NULL) carry the hand-made stories (special project names, notes, meetings). The rest look randomly generated, so don't overfit thresholds to them."
+ ],
+ "verdict_counts": {
+  "columns": {
+   "KEEP": 53,
+   "CLEAN-THEN-KEEP": 9,
+   "DERIVE-ONLY": 9,
+   "DROP": 35
+  },
+  "tables": {
+   "KEEP": 6,
+   "CLEAN-THEN-KEEP": 3,
+   "DROP": 2,
+   "DERIVE-ONLY": 1
+  },
+  "total_columns": 106
+ }
+}

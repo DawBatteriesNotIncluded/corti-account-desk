@@ -1,0 +1,32 @@
+# Secrets — never commit the Corti API key
+.env
+.env.*
+!.env.example
+
+# Provided analytics DB is 537 MB (over GitHub's 100 MB file limit).
+# Copy data/ from the challenge zip to run locally.
+data/analytics/*.sqlite
+
+# Local tool config + derived usage cache (rebuilt automatically)
+.claude/
+.cache/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# SQLite transient files
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Node
+*.log
+npm-debug.log*
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
