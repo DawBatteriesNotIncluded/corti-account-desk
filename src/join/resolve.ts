@@ -16,7 +16,7 @@ export type Match = {
   customerIds: string[];
   /** every candidate seen, even when ambiguous */
   candidateIds: string[];
-  method: MatchMethod | "ambiguous" | "none";
+  method: MatchMethod | "confirmed" | "ambiguous" | "none";
   confidence: MatchConfidence;
   note: string;
 };
@@ -41,7 +41,14 @@ export const custBillingKey = (e: string | null) => (e && e.includes("@") ? alnu
 
 const RANK: Record<MatchMethod, number> = { domain: 3, billing_domain: 2, name_only: 1 };
 
-export function resolveAccounts(accounts: Account[], customers: Customer[]): { matches: Map<string, Match>; unmatchedCustomers: Customer[] } {
+/** A link the AE confirmed by hand (saved in data/links.json); always wins over the automatic join. */
+export type ConfirmedLink = { customerIds: string[]; confirmedAt: string };
+
+export function resolveAccounts(
+  accounts: Account[],
+  customers: Customer[],
+  confirmed: Map<string, ConfirmedLink> = new Map(),
+): { matches: Map<string, Match>; unmatchedCustomers: Customer[] } {
   const byDomain = new Map<string, string[]>();
   const byBilling = new Map<string, string[]>();
   const byName = new Map<string, string[]>();
@@ -73,6 +80,13 @@ export function resolveAccounts(accounts: Account[], customers: Customer[]): { m
     edges.set(a.id, e);
   }
 
+  // Confirmed links take their customers out of everyone else's candidate list.
+  const confirmedCust = new Set([...confirmed.values()].flatMap((l) => l.customerIds));
+  for (const [aid, e] of edges) {
+    if (confirmed.has(aid)) e.clear();
+    else for (const cid of confirmedCust) e.delete(cid);
+  }
+
   // connected components over the bipartite graph
   const custToAccts = new Map<string, Set<string>>();
   for (const [aid, e] of edges) for (const cid of e.keys()) custToAccts.set(cid, (custToAccts.get(cid) ?? new Set()).add(aid));
@@ -80,6 +94,12 @@ export function resolveAccounts(accounts: Account[], customers: Customer[]): { m
   const matches = new Map<string, Match>();
 
   for (const a of accounts) {
+    const link = confirmed.get(a.id);
+    if (link) {
+      matches.set(a.id, { accountId: a.id, customerIds: [...link.customerIds].sort(), candidateIds: [...link.customerIds].sort(), method: "confirmed", confidence: "high",
+        note: `Link confirmed by the AE on ${link.confirmedAt.slice(0, 10)} (${link.customerIds.join(", ")}); overrides the automatic match.` });
+      continue;
+    }
     const e = edges.get(a.id)!;
     const candidateIds = [...e.keys()].sort();
     if (!candidateIds.length) {
@@ -118,6 +138,6 @@ export function resolveAccounts(accounts: Account[], customers: Customer[]): { m
             : "Matched on company name only (no domain match) - verify before acting.",
     });
   }
-  const unmatchedCustomers = customers.filter((c) => !custToAccts.has(c.id));
+  const unmatchedCustomers = customers.filter((c) => !custToAccts.has(c.id) && !confirmedCust.has(c.id));
   return { matches, unmatchedCustomers };
 }

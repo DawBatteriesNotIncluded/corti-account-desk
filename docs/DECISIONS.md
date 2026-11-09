@@ -95,6 +95,13 @@ ambiguous group silently**.
     EU trends are reported separately because they move in opposite
     directions.
   - 8 usage tenants with no CRM account are listed as a hygiene finding.
+- **The AE can confirm links.** `/link acc_010 cust_010` shows the current
+  match, asks y/N, saves the link to `data/links.json` and PATCHes it onto
+  the CRM account. It then re-runs the join and the signals. A confirmed link
+  is `confirmed` (high confidence) and takes its customers out of every other
+  account's candidate list, so the duplicate (acc_047) then resolves on its
+  own. In a real CRM this would be a custom field, and the join would become
+  exact over time. `npm run links` exports the whole mapping for review.
 - **Rejected:** the generated ids happen to line up by position
   (acc_N ≈ cust_N). That pattern separates every cluster, but it's an artefact
   of how the data was generated, not a real key. I used it only to confirm
@@ -192,7 +199,8 @@ profiling is in [`data-inventory.md`](data-inventory.md).
    already structured.
 2. Persist AE actions: the mock CRM drops writes, so keep a local log and
    reconcile it.
-3. Let the AE confirm ambiguous matches once, and remember the choice.
+3. Write confirmed links into a real CRM custom field. They're local today
+   because the mock CRM drops writes.
 4. Evals: a fixed question set with expected accounts and facts, run against
    each model and prompt change. The grounding check is the first metric.
 5. Calibrate thresholds on outcomes (renewed vs churned) instead of the data

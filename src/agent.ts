@@ -98,6 +98,8 @@ export class Agent {
   constructor(private deps: AgentDeps) {}
 
   reset() { this.history = []; this.facts = []; }
+  /** swap in a rebuilt book (e.g. after the AE confirms a link) */
+  setBook(book: Book) { this.deps.book = book; }
 
   async ask(question: string): Promise<{ text: string; unsupported: string[]; toolsUsed: string[] }> {
     const owner = this.deps.owner();

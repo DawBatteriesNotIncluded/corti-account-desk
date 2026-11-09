@@ -6,7 +6,7 @@
 import { THRESHOLDS as TH, TODAY, daysAgo, daysFromToday } from "./config.ts";
 import type { Activity, Contact, CrmBundle, Opportunity, Task } from "./crm/client.ts";
 import { pctChange, type Analytics, type Contract, type Customer, type TenantUsage } from "./analytics/usage.ts";
-import { resolveAccounts, type Match } from "./join/resolve.ts";
+import { resolveAccounts, type ConfirmedLink, type Match } from "./join/resolve.ts";
 
 export type Kind = "risk" | "grow" | "renewal" | "watch" | "hygiene";
 export type Confidence = "high" | "medium" | "low";
@@ -159,8 +159,8 @@ const classify = (l: number, p: number): AccountView["usage"]["trendClass"] => {
 
 const RISK_NOTE = /(concern|dissatisf|no response|unclear|lost|quiet|low priority|unhappy|issue|churn)/i;
 
-export function buildBook(crm: CrmBundle[], an: Analytics): Book {
-  const { matches, unmatchedCustomers } = resolveAccounts(crm.map((b) => b.account), an.customers);
+export function buildBook(crm: CrmBundle[], an: Analytics, confirmed: Map<string, ConfirmedLink> = new Map()): Book {
+  const { matches, unmatchedCustomers } = resolveAccounts(crm.map((b) => b.account), an.customers, confirmed);
   const custById = new Map(an.customers.map((c) => [c.id, c]));
   const contractsByCust = new Map<string, Contract[]>();
   for (const k of an.contracts) contractsByCust.set(k.customer_id, [...(contractsByCust.get(k.customer_id) ?? []), k]);

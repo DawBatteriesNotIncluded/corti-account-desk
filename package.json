@@ -11,7 +11,8 @@
     "test": "node --env-file-if-exists=.env.local --import tsx --test tests/starter.test.ts tests/corti-auth.test.ts tests/book.test.ts",
     "challenge": "node --env-file-if-exists=.env.local --import tsx src/candidate/index.ts",
     "ask": "node --env-file-if-exists=.env.local --import tsx scripts/ask.ts",
-    "brief":"node --env-file-if-exists=.env.local --import tsx src/brief.ts",
+    "links": "node --env-file-if-exists=.env.local --import tsx scripts/links.ts",
+    "brief": "node --env-file-if-exists=.env.local --import tsx src/brief.ts",
     "corti:check": "node --env-file-if-exists=.env.local --import tsx scripts/check-corti.ts",
     "set-key": "node --import tsx scripts/set-corti-key.ts && npm run corti:check"
   },

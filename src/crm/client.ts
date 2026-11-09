@@ -141,6 +141,9 @@ export class CrmClient {
   createTask(body: { accountId: string; title: string; dueDate?: string; ownerId?: string }) {
     return this.call<{ task: Task }>("/tasks", { method: "POST", body: JSON.stringify(body) });
   }
+  patchAccount(accountId: string, patch: Record<string, unknown>) {
+    return this.call<Account>(`/accounts/${encodeURIComponent(accountId)}`, { method: "PATCH", body: JSON.stringify(patch) });
+  }
   addNote(accountId: string, text: string) {
     return this.call<{ note: Activity }>(`/accounts/${encodeURIComponent(accountId)}/notes`, { method: "POST", body: JSON.stringify({ text }) });
   }

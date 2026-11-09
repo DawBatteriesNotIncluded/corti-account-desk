@@ -8,19 +8,23 @@ import { Agent } from "./agent.ts";
 import { loadBook } from "./load.ts";
 import { bold, cyan, dim, md, renderAccount, renderBrief, yellow } from "./render.ts";
 import { findAccount } from "./tools.ts";
+import { loadLinks, saveLinks } from "./join/links.ts";
 
 const HELP = `${bold("Ask anything")}, e.g.
   What should I do first today?        Tell me about CrestlineMedical
   Who are the contacts at Ironwood?    Where are my MEDDPICC gaps on open deals?
   What's at risk this quarter?         Who is ready to grow?
   What changed last week?              Create a task to call Drew Taylor tomorrow
-${bold("Commands")} (no LLM): /brief  /account <name|id>  /owner <id|all>  /reset  /help  /quit`;
+${bold("Commands")} (no LLM): /brief  /account <name|id>  /owner <id|all>  /reset  /help  /quit
+${bold("Links")} (CRM account <-> usage record): /links  /link <acc_id> <cust_id>[,cust_id]  /unlink <acc_id>`;
 
 export async function main(argv = process.argv.slice(2)) {
   const ownerArg = argv.includes("--owner") ? argv[argv.indexOf("--owner") + 1] : null;
   let owner: string | null = ownerArg ?? null;
   console.log(dim("Loading CRM (via API) and product analytics..."));
-  const { book, crm } = await loadBook((s) => console.log(dim(s)));
+  const loaded = await loadBook((s) => console.log(dim(s)));
+  let book = loaded.book;
+  const { crm, rebuild } = loaded;
   const owners = [...new Set(book.accounts.map((a) => a.owner).filter(Boolean))].sort() as string[];
   if (owner && !owners.includes(owner)) { console.log(yellow(`Unknown owner ${owner}; showing the whole book. Owners: ${owners.join(", ")}`)); owner = null; }
 
@@ -54,6 +58,41 @@ export async function main(argv = process.argv.slice(2)) {
       const o = q.split(/\s+/)[1];
       owner = !o || o === "all" ? null : owners.includes(o) ? o : owner;
       console.log(dim(o && o !== "all" && !owners.includes(o) ? `Unknown owner. Owners: ${owners.join(", ")}` : `Scope: ${owner ?? "whole book"}`));
+      continue;
+    }
+    if (q === "/links") {
+      const links = loadLinks();
+      console.log(links.size ? [...links].map(([a, l]) => `  ${a} -> ${l.customerIds.join(", ")} (confirmed ${l.confirmedAt.slice(0, 10)})`).join("\n") : dim(`No confirmed links yet. Ambiguous accounts: ${book.accounts.filter((a) => a.match.method === "ambiguous").map((a) => a.id).join(", ")}`));
+      continue;
+    }
+    if (q.startsWith("/link ") || q.startsWith("/unlink ")) {
+      const [cmd, accId, custArg] = q.split(/\s+/);
+      const acc = book.byId.get(accId ?? "");
+      if (!acc) { console.log(yellow(`Unknown account id "${accId}". Use the acc_ id from /account.`)); continue; }
+      const links = loadLinks();
+      if (cmd === "/unlink") {
+        if (!links.has(acc.id)) { console.log(dim(`${acc.id} has no confirmed link.`)); continue; }
+        if (!(await confirm(`Remove the confirmed link for ${acc.name} (${acc.id})?`))) { console.log(dim("Cancelled.")); continue; }
+        links.delete(acc.id);
+      } else {
+        const ids = (custArg ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+        const known = new Set(book.analytics.customers.map((c) => c.id));
+        const bad = ids.filter((id) => !known.has(id));
+        if (!ids.length || bad.length) { console.log(yellow(`Give valid usage-record ids (cust_...). ${bad.length ? `Unknown: ${bad.join(", ")}. ` : ""}Candidates for ${acc.id}: ${acc.match.candidateIds.join(", ") || "none"}`)); continue; }
+        const taken = [...links].filter(([a, l]) => a !== acc.id && l.customerIds.some((c) => ids.includes(c))).map(([a]) => a);
+        if (taken.length) { console.log(yellow(`Already confirmed for ${taken.join(", ")}. Run /unlink there first.`)); continue; }
+        const names = ids.map((id) => book.analytics.customers.find((c) => c.id === id)!.customer_name).join(", ");
+        console.log(dim(`Current match: ${acc.match.method} (${acc.match.confidence}) - ${acc.match.note}`));
+        if (!(await confirm(`Confirm ${acc.name} (${acc.id}) uses usage record(s) ${ids.join(", ")} [${names}]?`))) { console.log(dim("Cancelled.")); continue; }
+        links.set(acc.id, { customerIds: ids, confirmedAt: new Date().toISOString() });
+        try { await crm.patchAccount(acc.id, { analyticsCustomerIds: ids }); console.log(dim("Sent to the CRM (PATCH /accounts/:id). Note: the mock CRM doesn't persist writes, so the link is kept in data/links.json.")); }
+        catch (e) { console.log(yellow(`CRM update failed (${(e as Error).message}); the link is still saved locally.`)); }
+      }
+      saveLinks(links);
+      book = rebuild();
+      agent.setBook(book);
+      const now = book.byId.get(acc.id)!;
+      console.log(`${bold(now.name)}: match ${now.match.method} (${now.match.confidence}); confidence ${now.confidence}; priority ${now.priority}. Signals recomputed for the whole book.`);
       continue;
     }
     if (q.startsWith("/account")) {

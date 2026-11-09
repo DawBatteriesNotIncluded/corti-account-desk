@@ -15,11 +15,15 @@ import { findAccount, TOOLS } from "../src/tools.ts";
 import { offTopicReply } from "../src/agent.ts";
 
 let book: Book;
+let bundles: Awaited<ReturnType<typeof loadCrm>>;
+let an: ReturnType<typeof loadAnalytics>;
 
 before(async () => {
   const app = createApp(new CrmDb());
   const client = new CrmClient("http://crm.test", (url, init) => Promise.resolve(app.request(url.replace("http://crm.test", ""), init)));
-  book = buildBook(await loadCrm(client), loadAnalytics());
+  bundles = await loadCrm(client);
+  an = loadAnalytics();
+  book = buildBook(bundles, an);
 });
 
 describe("join", () => {
@@ -86,6 +90,19 @@ describe("confidence", () => {
       const lead = a.findings.find((f) => f.kind !== "hygiene");
       if (lead?.id === "runway_short") assert.equal(a.confidence, "low", a.id);
     }
+  });
+});
+
+describe("AE-confirmed links", () => {
+  test("confirming acc_010 -> cust_010 makes it high confidence and resolves its duplicate acc_047 to cust_046", () => {
+    const b = buildBook(bundles, an, new Map([["acc_010", { customerIds: ["cust_010"], confirmedAt: "2025-03-14T09:00:00Z" }]]));
+    const a = b.byId.get("acc_010")!;
+    assert.equal(a.match.method, "confirmed");
+    assert.equal(a.match.confidence, "high");
+    assert.ok(a.usage.prodL28 > 0, "usage now attributed");
+    const dup = b.byId.get("acc_047")!;
+    assert.deepEqual(dup.match.customerIds, ["cust_046"]);
+    assert.equal(dup.match.confidence, "high");
   });
 });
 

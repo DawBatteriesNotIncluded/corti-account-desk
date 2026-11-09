@@ -11,6 +11,10 @@ data/analytics/*.sqlite
 .claude/
 .cache/
 
+# AE-confirmed account links (local state) and exports
+data/links.json
+out/
+
 # Dependencies
 node_modules/
 

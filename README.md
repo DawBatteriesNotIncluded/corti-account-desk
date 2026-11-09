@@ -37,10 +37,12 @@ is 537 MB, which is over GitHub's file limit, so it isn't committed.
 | `npm run challenge -- --owner jordan.lee` | Scope the tool to one AE's book (the default is the whole book) |
 | `npm run brief` / `npm run brief -- --account acc_022` | Deterministic brief or account card. **No LLM needed** |
 | `npm run ask -- "What should I do first today?"` | Ask a one-off question without the interactive chat |
+| `npm run links` | Export the full CRM-account → usage-record mapping, with method and confidence for each, to `out/links.csv` |
 | `npm run corti:check` | Check the Corti credentials |
 | `npm test` | 38 tests: join, signals, MEDDPICC, confidence, usage tools, scope guard, grounding check, Corti auth |
 
 In the chat: `/brief`, `/account <name|id>`, `/owner <id|all>`, `/reset`, `/quit`.
+Account linking: `/links`, `/link <acc_id> <cust_id>[,cust_id]` (the AE confirms an ambiguous match; it's saved to `data/links.json` and sent to the CRM via PATCH), `/unlink <acc_id>`.
 
 ## Approach
 
